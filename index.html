@@ -2,12 +2,18 @@
 <html>
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>My React App</title>
+    <!-- React 18 UMD builds -->
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <!-- Babel Standalone to transpile JSX in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   </head>
   <body>
     <div id="root"></div>
-    <script src="./app.js"></script>
+
+    <!-- Load your JSX file and transpile it on the fly -->
+    <script type="text/babel" data-presets="react" src="./app.jsx"></script>
   </body>
 </html>
