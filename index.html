@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Andrew Ikovic — Portfolio</title>
+  <meta name="description" content="Portfolio, projects, and blog." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">Andrew Ikovic</a>
+
+      <nav class="nav" aria-label="Primary navigation">
+        <a href="#projects">Projects</a>
+        <a href="blog.html">Blog</a>
+        <a href="#contact">Contact</a>
+      </nav>
+
+      <div class="header-links">
+        <!-- EDIT THESE -->
+        <a class="pill" href="https://github.com/andrewikovic" target="_blank" rel="noreferrer">GitHub</a>
+        <a class="pill" href="https://www.linkedin.com/in/andrewikovic" target="_blank" rel="noreferrer">LinkedIn</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="container hero-grid">
+        <div>
+          <p class="kicker">Applied Math • Software • Data</p>
+          <h1>Building useful software and writing about what I learn.</h1>
+          <p class="subhead">
+            Mathematics undergraduate who builds software, with a focus on C++ systems, algorithms, and practical engineering tools. Interested in writing clean, reliable code and learning from real-world projects. Currently looking for junior software roles or internships.
+          </p>
+
+          <div class="cta-row">
+            <a class="btn primary" href="#projects">View projects</a>
+            <a class="btn" href="blog.html">Read the blog</a>
+          </div>
+
+          <div class="quick-stats">
+            <div class="stat">
+              <div class="stat-num">X+</div>
+              <div class="stat-label">Projects</div>
+            </div>
+            <div class="stat">
+              <div class="stat-num">8</div>
+              <div class="stat-label">Years coding</div>
+            </div>
+            <div class="stat">
+              <div class="stat-num">Z</div>
+              <div class="stat-label">Focus areas</div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="card profile-card" aria-label="Profile card">
+          <div class="avatar" aria-hidden="true">YN</div>
+          <div>
+            <h2 class="card-title">Andrew Ikovic</h2>
+            <p class="muted">
+              Math @ UAlberta • Systems, algorithms, practical tooling • C++, Python
+            </p>
+          </div>
+          <div class="divider"></div>
+          <ul class="meta">
+            <li><span class="muted">Email</span> <a href="mailto:ikovic@ualberta.ca">ikovic@ualberta.ca</a></li>
+            <li><span class="muted">Location</span> Edmonton, AB</li>
+            <li><span class="muted">Resume</span> <a href="#" target="_blank" rel="noreferrer">Add link</a></li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section" id="projects">
+      <div class="container">
+        <div class="section-head">
+          <h2>Projects</h2>
+          <p class="muted">Each project links to a GitHub repo and/or a blog post.</p>
+        </div>
+
+        <div class="grid">
+          <!-- PROJECT CARD 1 -->
+          <article class="card project">
+            <div class="tag-row">
+              <span class="tag">C++</span>
+              <span class="tag">CAD/CAM</span>
+              <span class="tag">Algorithms</span>
+            </div>
+            <h3>IKOCADCAM</h3>
+            <p class="muted">
+              C++ CAD/CAM system featuring a custom DXF parser, nesting algorithms, and practical manufacturing workflow support.
+            </p>
+            <div class="card-links">
+              <!-- EDIT LINKS -->
+              <a class="link" href="https://github.com/yourusername/ikocadcam" target="_blank" rel="noreferrer">GitHub →</a>
+              <a class="link" href="blog.html#ikocadcam" aria-label="Read blog post about IKOCADCAM">Blog post →</a>
+            </div>
+          </article>
+
+          <!-- PROJECT CARD 2 -->
+          <article class="card project">
+            <div class="tag-row">
+              <span class="tag">RapidTurnStudio</span>
+              <span class="tag">Time Series</span>
+              <span class="tag">Forecasting</span>
+            </div>
+            <h3>Energy Forecasting</h3>
+            <p class="muted">
+              Forecasting pipeline with feature engineering, backtesting, and evaluation.
+            </p>
+            <div class="card-links">
+              <a class="link" href="https://github.com/yourusername/energy-forecasting" target="_blank" rel="noreferrer">GitHub →</a>
+              <a class="link" href="posts/first-post.html">Blog post →</a>
+            </div>
+          </article>
+
+          <!-- PROJECT CARD 3 -->
+          <article class="card project">
+            <div class="tag-row">
+              <span class="tag">C++</span>
+              <span class="tag">CNC</span>
+              <span class="tag">UI</span>
+            </div>
+            <h3>RapidTurnStudio</h3>
+            <p class="muted">
+              CNC lathe programming environment with tooling libraries and workflow helpers.
+            </p>
+            <div class="card-links">
+              <a class="link" href="https://github.com/yourusername/rapidturnstudio" target="_blank" rel="noreferrer">GitHub →</a>
+              <a class="link" href="blog.html#rapidturnstudio">Blog post →</a>
+            </div>
+          </article>
+
+          <!-- Duplicate cards as needed -->
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt">
+      <div class="container">
+        <div class="section-head">
+          <h2>Latest writing</h2>
+          <p class="muted">Short posts about projects, math, and engineering decisions.</p>
+        </div>
+
+        <div class="list">
+          <a class="list-item" href="posts/first-post.html">
+            <div>
+              <div class="list-title">How I structured an energy forecasting baseline</div>
+              <div class="muted">Backtesting, leakage, and metrics in plain terms.</div>
+            </div>
+            <span class="muted">Read →</span>
+          </a>
+
+          <a class="list-item" href="blog.html">
+            <div>
+              <div class="list-title">More posts</div>
+              <div class="muted">See all writing on the blog page.</div>
+            </div>
+            <span class="muted">Open →</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="contact">
+      <div class="container">
+        <div class="section-head">
+          <h2>Contact</h2>
+          <p class="muted">Best way to reach me: email or LinkedIn.</p>
+        </div>
+
+        <div class="contact-grid">
+          <div class="card">
+            <h3>Email</h3>
+            <p class="muted">For opportunities, questions, or collaboration.</p>
+            <a class="btn primary" href="mailto:you@example.com">you@example.com</a>
+          </div>
+
+          <div class="card">
+            <h3>Links</h3>
+            <p class="muted">GitHub + LinkedIn.</p>
+            <div class="cta-row">
+              <a class="btn" href="https://github.com/yourusername" target="_blank" rel="noreferrer">GitHub</a>
+              <a class="btn" href="https://www.linkedin.com/in/yourusername" target="_blank" rel="noreferrer">LinkedIn</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <p class="muted">© <span id="year">2025</span> Your Name. Built with HTML + CSS.</p>
+      <p class="muted">
+        <a href="blog.html">Blog</a> ·
+        <a href="#projects">Projects</a>
+      </p>
+    </div>
+  </footer>
+
+  <!-- Optional: keep it pure HTML/CSS by removing this.
+       It only updates the year text; safe to delete. -->
+  <script>
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>
