@@ -204,9 +204,50 @@ h2 {
   white-space: nowrap;
 }
 
+.post-layout {
+  display: grid;
+  grid-template-columns: 13rem minmax(0, var(--content));
+  gap: 3rem;
+  align-items: start;
+  justify-content: center;
+}
+
+.post-toc {
+  position: sticky;
+  top: 2rem;
+  display: grid;
+  gap: 0.65rem;
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+  padding-top: 3.85rem;
+  padding-bottom: 0.25rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  scrollbar-width: thin;
+}
+
+.post-toc strong {
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 620;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.post-toc a {
+  color: var(--muted);
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+.post-toc a:hover {
+  color: var(--accent);
+}
+
 .post {
   max-width: var(--content);
-  margin: 0 auto;
+  min-width: 0;
+  margin: 0;
 }
 
 .post-header-meta {
@@ -219,6 +260,15 @@ h2 {
   margin-left: auto;
   text-align: right;
   white-space: nowrap;
+}
+
+.source-link {
+  margin: 1.2rem 0 0;
+  color: var(--muted);
+}
+
+.source-link a {
+  color: var(--text);
 }
 
 .back-link {
@@ -299,6 +349,22 @@ blockquote {
   color: var(--muted);
 }
 
+.diagram {
+  overflow-x: auto;
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid var(--soft-line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.diagram svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
 footer {
   padding: 1.5rem 0 2rem;
   border-top: 1px solid var(--line);
@@ -335,6 +401,18 @@ footer {
 
   main {
     padding: 3rem 0 4rem;
+  }
+
+  .post-layout {
+    display: block;
+  }
+
+  .post-toc {
+    position: static;
+    margin-bottom: 2.5rem;
+    padding-top: 0;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid var(--line);
   }
 
   .post-preview {
