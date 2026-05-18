@@ -1,0 +1,1638 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cache Simulator and Matrix Transpose Design Note - Andrew Ikovic</title>
+  <meta name="description" content="Technical design notes for a CS:APP Cache Lab simulator and cache-aware matrix transpose implementation.">
+  <link rel="stylesheet" href="../styles.css">
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        background: "#fbfaf7",
+        primaryColor: "#fbfaf7",
+        primaryTextColor: "#101010",
+        primaryBorderColor: "#d8d4ca",
+        lineColor: "#62615c",
+        secondaryColor: "#eef5f2",
+        tertiaryColor: "#f4f2ed",
+        fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
+      }
+    });
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="../index.html">Andrew Ikovic</a>
+      <nav aria-label="Primary navigation">
+        <a href="https://github.com/andrewikovic" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://www.linkedin.com/in/andrewikovic" target="_blank" rel="noreferrer">LinkedIn</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="post-layout">
+    <aside class="post-toc" aria-label="Table of contents">
+      <strong>Contents</strong>
+      <ol>
+        <li>
+          <a href="#reader-guide">Reader Guide</a>
+        </li>
+        <li>
+          <a href="#high-level-architecture">High-Level Architecture</a>
+        </li>
+        <li>
+          <a href="#repository-map">Repository Map</a>
+        </li>
+        <li>
+          <a href="#build-and-platform-model">Build And Platform Model</a>
+        </li>
+        <li>
+          <a href="#shared-cache-model">Shared Cache Model</a>
+        </li>
+        <li>
+          <a href="#part-a-cache-simulator-design">Part A: Cache Simulator Design</a>
+          <ul>
+            <li><a href="#simulator-data-structures">Simulator Data Structures</a></li>
+            <li><a href="#argument-parsing">Argument Parsing</a></li>
+            <li><a href="#cache-allocation">Cache Allocation</a></li>
+            <li><a href="#address-decomposition">Address Decomposition</a></li>
+            <li><a href="#access-result-flags">Access Result Flags</a></li>
+            <li><a href="#lru-strategy">LRU Strategy</a></li>
+            <li><a href="#core-access-algorithm">Core Access Algorithm</a></li>
+            <li><a href="#trace-parsing">Trace Parsing</a></li>
+            <li><a href="#verbose-output-formatting">Verbose Output Formatting</a></li>
+            <li><a href="#example-trace-walkthrough">Example Trace Walkthrough</a></li>
+            <li><a href="#error-handling-and-cleanup">Error Handling And Cleanup</a></li>
+            <li><a href="#simulator-complexity">Simulator Complexity</a></li>
+            <li><a href="#simulator-design-review">Simulator Design Review</a></li>
+          </ul>
+        </li>
+        <li>
+          <a href="#part-b-matrix-transpose-design">Part B: Matrix Transpose Design</a>
+          <ul>
+            <li><a href="#function-map">Function Map</a></li>
+            <li><a href="#row-major-address-math">Row-Major Address Math</a></li>
+          </ul>
+        </li>
+        <li>
+          <a href="#32x32-transpose">32x32 Transpose</a>
+        </li>
+        <li>
+          <a href="#64x64-transpose">64x64 Transpose</a>
+          <ul>
+            <li><a href="#phase-1-load-upper-rows-and-stage-upper-right-data">Phase 1: Load Upper Rows And Stage Upper-Right Data</a></li>
+            <li><a href="#phase-2-swap-staged-upper-right-with-lower-left">Phase 2: Swap Staged Upper-Right With Lower-Left</a></li>
+            <li><a href="#phase-3-write-lower-right-directly">Phase 3: Write Lower-Right Directly</a></li>
+            <li><a href="#64x64-algorithm-summary">64x64 Algorithm Summary</a></li>
+          </ul>
+        </li>
+        <li>
+          <a href="#generic-transpose-for-irregular-sizes">Generic Transpose For Irregular Sizes</a>
+        </li>
+        <li>
+          <a href="#baseline-transpose-and-correctness-helper">Baseline Transpose And Correctness Helper</a>
+        </li>
+        <li>
+          <a href="#evaluation-harness-design">Evaluation Harness Design</a>
+          <ul>
+            <li><a href="#function-registration">Function Registration</a></li>
+            <li><a href="#trace-generation">Trace Generation</a></li>
+            <li><a href="#correctness-validation">Correctness Validation</a></li>
+            <li><a href="#trace-filtering">Trace Filtering</a></li>
+            <li><a href="#performance-measurement">Performance Measurement</a></li>
+          </ul>
+        </li>
+        <li>
+          <a href="#scoring-model">Scoring Model</a>
+        </li>
+        <li>
+          <a href="#correctness-contracts">Correctness Contracts</a>
+          <ul>
+            <li><a href="#simulator-contracts">Simulator Contracts</a></li>
+            <li><a href="#transpose-contracts">Transpose Contracts</a></li>
+          </ul>
+        </li>
+        <li>
+          <a href="#design-tradeoffs">Design Tradeoffs</a>
+          <ul>
+            <li><a href="#why-store-only-cache-metadata">Why Store Only Cache Metadata?</a></li>
+            <li><a href="#why-timestamp-based-lru">Why Timestamp-Based LRU?</a></li>
+            <li><a href="#why-specialized-transpose-paths">Why Specialized Transpose Paths?</a></li>
+            <li><a href="#why-no-heap-allocation-in-transc">Why No Heap Allocation In trans.c?</a></li>
+            <li><a href="#why-use-b-as-temporary-storage-in-64x64">Why Use B As Temporary Storage In 64x64?</a></li>
+          </ul>
+        </li>
+        <li>
+          <a href="#maintenance-notes">Maintenance Notes</a>
+        </li>
+        <li>
+          <a href="#useful-commands">Useful Commands</a>
+        </li>
+        <li>
+          <a href="#review-checklist">Review Checklist</a>
+        </li>
+        <li>
+          <a href="#summary">Summary</a>
+        </li>
+      </ol>
+    </aside>
+
+    <article class="post">
+      <a class="back-link" href="../index.html">Back to posts</a>
+      <div class="post-header-meta">
+        <time datetime="2026-05-17">May 17, 2026</time>
+      </div>
+
+<h1 id="cache-simulator-and-matrix-transpose-design-note">Cache Simulator and Matrix Transpose Design Note</h1>
+      <p class="source-link">
+        Source repository:
+        <a href="https://github.com/andrewikovic/cache" target="_blank" rel="noreferrer">github.com/andrewikovic/cache</a>
+      </p>
+<p>This document is a comprehensive technical design guide for this Cache Lab repository. It explains the implementation as it exists in the current codebase, with the source files as the source of truth:</p>
+<ul>
+<li><a href="https://github.com/andrewikovic/cache/blob/main/csim.c">csim.c</a>: configurable cache simulator</li>
+<li><a href="https://github.com/andrewikovic/cache/blob/main/trans.c">trans.c</a>: cache-aware matrix transpose implementation</li>
+<li><a href="https://github.com/andrewikovic/cache/blob/main/cachelab.c">cachelab.c</a> and <a href="https://github.com/andrewikovic/cache/blob/main/cachelab.h">cachelab.h</a>: grading helper interfaces</li>
+<li><a href="https://github.com/andrewikovic/cache/blob/main/test-trans.c">test-trans.c</a>, <a href="https://github.com/andrewikovic/cache/blob/main/tracegen.c">tracegen.c</a>, and <a href="https://github.com/andrewikovic/cache/blob/main/driver.py">driver.py</a>: evaluation harness</li>
+<li><a href="https://github.com/andrewikovic/cache/blob/main/Makefile">Makefile</a>: build rules</li>
+</ul>
+<p>The project has two independent but related parts:</p>
+<ol>
+<li>A simulator that models cache hits, misses, and evictions for Valgrind-style traces.</li>
+<li>A matrix transpose implementation tuned for the direct-mapped cache model used by the lab driver.</li>
+</ol>
+<p>The key design theme across both parts is that the code does not simulate or optimize more than the grading model needs. The simulator stores only line metadata, because hit/miss behavior depends only on validity, tags, and replacement order. The transpose code uses explicit scalar movement and fixed tile schedules, because the benchmark rewards controlling cache-line residency and avoiding direct-mapped conflicts.</p>
+<h2 id="reader-guide">Reader Guide</h2>
+<p>This is a code-level design document, not a quick-start guide. For a shorter project overview, use <a href="https://github.com/andrewikovic/cache/blob/main/README.md">README.md</a>. For implementation review, read this document in this order:</p>
+<ol>
+<li><strong>High-Level Architecture</strong> for the runtime flow.</li>
+<li><strong>Shared Cache Model</strong> for the cache geometry used by both parts.</li>
+<li><strong>Part A: Cache Simulator Design</strong> for <code>csim.c</code> internals.</li>
+<li><strong>Part B: Matrix Transpose Design</strong> for <code>trans.c</code> internals.</li>
+<li><strong>Evaluation Harness Design</strong> for how the driver measures correctness and misses.</li>
+<li><strong>Correctness Contracts</strong> and <strong>Review Checklist</strong> before modifying code.</li>
+</ol>
+<p>The recorded performance numbers in this document come from the project's existing documented Linux validation results. The current macOS workspace can run the locally built <code>csim</code> binary directly, but the original <code>test-csim</code>, <code>csim-ref</code>, and full transpose performance path require a Linux-compatible environment and, for transpose, Valgrind.</p>
+<h2 id="high-level-architecture">High-Level Architecture</h2>
+<p>The repository is small, but the runtime flow has several moving pieces. The simulator path is direct: parse a trace, update cache metadata, and report the final counters.</p>
+<div class="diagram mermaid">
+flowchart TD
+    Trace[&quot;Trace file&quot;] --&gt; Parse[&quot;csim.c parses L/S/M operations&quot;]
+    Parse --&gt; Access[&quot;access_cache updates cache metadata&quot;]
+    Access --&gt; Counters[&quot;hits, misses, evictions&quot;]
+    Counters --&gt; Summary[&quot;printSummary writes stdout and .csim_results&quot;]
+</div>
+<p>The transpose path is more involved because the driver measures memory references rather than wall-clock time.</p>
+<div class="diagram mermaid">
+flowchart TD
+    TestTrans[&quot;test-trans&quot;] --&gt; Tracegen[&quot;tracegen invokes registered transpose function&quot;]
+    Tracegen --&gt; Valgrind[&quot;Valgrind lackey records memory references&quot;]
+    Valgrind --&gt; Filter[&quot;test-trans filters marker-bounded trace window&quot;]
+    Filter --&gt; RefSim[&quot;csim-ref evaluates trace with s=5, E=1, b=5&quot;]
+    RefSim --&gt; Driver[&quot;driver.py converts correctness and misses into score&quot;]
+</div>
+<p>The optimized submission entry point is <code>transpose_submit</code> in <a href="https://github.com/andrewikovic/cache/blob/main/trans.c">trans.c</a>. It dispatches by matrix size:</p>
+<pre><code class="language-c">void transpose_submit(int M, int N, int A[N][M], int B[M][N])
+{
+    if (M == 32 &amp;&amp; N == 32) {
+        transpose_32(M, N, A, B);
+    } else if (M == 64 &amp;&amp; N == 64) {
+        transpose_64(M, N, A, B);
+    } else {
+        transpose_generic(M, N, A, B);
+    }
+}
+</code></pre>
+<p>That dispatch matches the three graded transpose workloads:</p>
+<ul>
+<li><code>32x32</code></li>
+<li><code>64x64</code></li>
+<li><code>61x67</code></li>
+</ul>
+<p>There is no named <code>transpose_61x67</code> function. The irregular workload is handled by the generic blocked helper.</p>
+<h2 id="repository-map">Repository Map</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/andrewikovic/cache/blob/main/csim.c">csim.c</a></td>
+<td>Student cache simulator for Part A</td>
+</tr>
+<tr>
+<td><a href="https://github.com/andrewikovic/cache/blob/main/trans.c">trans.c</a></td>
+<td>Student transpose implementation for Part B</td>
+</tr>
+<tr>
+<td><a href="https://github.com/andrewikovic/cache/blob/main/cachelab.c">cachelab.c</a></td>
+<td>Shared helper implementation used by simulator and transpose tests</td>
+</tr>
+<tr>
+<td><a href="https://github.com/andrewikovic/cache/blob/main/cachelab.h">cachelab.h</a></td>
+<td>Shared type declarations and helper prototypes</td>
+</tr>
+<tr>
+<td><a href="https://github.com/andrewikovic/cache/blob/main/driver.py">driver.py</a></td>
+<td>Original Python 2 grading driver</td>
+</tr>
+<tr>
+<td><a href="https://github.com/andrewikovic/cache/blob/main/test-trans.c">test-trans.c</a></td>
+<td>Transpose correctness and performance harness</td>
+</tr>
+<tr>
+<td><a href="https://github.com/andrewikovic/cache/blob/main/tracegen.c">tracegen.c</a></td>
+<td>Invokes transpose functions under Valgrind trace generation</td>
+</tr>
+<tr>
+<td><a href="https://github.com/andrewikovic/cache/blob/main/test-csim">test-csim</a></td>
+<td>Prebuilt simulator checker</td>
+</tr>
+<tr>
+<td><a href="https://github.com/andrewikovic/cache/blob/main/csim-ref">csim-ref</a></td>
+<td>Prebuilt reference simulator used by transpose evaluation</td>
+</tr>
+<tr>
+<td><a href="https://github.com/andrewikovic/cache/blob/main/traces">traces/</a></td>
+<td>Simulator trace inputs</td>
+</tr>
+<tr>
+<td><a href="https://github.com/andrewikovic/cache/blob/main/Makefile">Makefile</a></td>
+<td>Build and cleanup rules</td>
+</tr>
+</tbody>
+</table>
+<h2 id="build-and-platform-model">Build And Platform Model</h2>
+<p>The original assignment tooling assumes Linux <code>x86_64</code>. The repository currently contains a locally built <code>csim</code> executable for macOS arm64, while <code>test-csim</code> and <code>csim-ref</code> are Linux ELF binaries. That means:</p>
+<ul>
+<li><code>./csim</code> can be run directly in the current macOS workspace.</li>
+<li><code>./test-csim</code>, <code>./csim-ref</code>, and the full original driver need a Linux-compatible environment.</li>
+<li>The official transpose performance path also needs <code>valgrind</code>.</li>
+</ul>
+<p>The Makefile builds the C sources with strict warnings:</p>
+<pre><code class="language-make">CC = gcc
+CFLAGS = -g -Wall -Werror -std=c99 -m64
+
+all: csim test-trans tracegen
+    # Generate a handin tar file each time you compile
+    -tar -cvf ${USER}-handin.tar  csim.c trans.c
+</code></pre>
+<p>The key build targets are:</p>
+<pre><code class="language-make">csim: csim.c cachelab.c cachelab.h
+    $(CC) $(CFLAGS) -o csim csim.c cachelab.c -lm
+
+test-trans: test-trans.c trans.o cachelab.c cachelab.h
+    $(CC) $(CFLAGS) -o test-trans test-trans.c cachelab.c trans.o
+
+tracegen: tracegen.c trans.o cachelab.c
+    $(CC) $(CFLAGS) -O0 -o tracegen tracegen.c trans.o cachelab.c
+</code></pre>
+<p>The <code>trans.o</code> target is compiled with <code>-O0</code>:</p>
+<pre><code class="language-make">trans.o: trans.c
+    $(CC) $(CFLAGS) -O0 -c trans.c
+</code></pre>
+<p>That matters for the transpose benchmark. The measured memory trace should reflect the written code instead of an aggressively transformed compiler output.</p>
+<h2 id="shared-cache-model">Shared Cache Model</h2>
+<p>The simulator and transpose benchmark both use the standard cache-lab address model:</p>
+<pre><code class="language-text">address bits:
+
+| tag | set index | block offset |
+</code></pre>
+<p>For a cache with <code>s</code> set-index bits, <code>E</code> lines per set, and <code>b</code> block-offset bits:</p>
+<pre><code class="language-text">number of sets = 2^s
+block size     = 2^b bytes
+set index      = (address &gt;&gt; b) &amp; ((1 &lt;&lt; s) - 1)
+tag            = address &gt;&gt; (s + b)
+</code></pre>
+<p>The transpose grading cache is fixed by <a href="https://github.com/andrewikovic/cache/blob/main/test-trans.c">test-trans.c</a>:</p>
+<pre><code class="language-c">eval_perf(5, 1, 5);
+</code></pre>
+<p>So Part B is evaluated with:</p>
+<pre><code class="language-text">s = 5                 -&gt; 32 sets
+E = 1                 -&gt; direct-mapped cache
+b = 5                 -&gt; 32-byte blocks
+cache capacity        -&gt; 32 sets * 1 line/set * 32 bytes = 1024 bytes
+sizeof(int)           -&gt; 4 bytes
+ints per cache block  -&gt; 32 / 4 = 8 ints
+</code></pre>
+<p>The <code>8 ints per cache block</code> fact explains almost every transpose decision in <a href="https://github.com/andrewikovic/cache/blob/main/trans.c">trans.c</a>:</p>
+<ul>
+<li><code>32x32</code> uses <code>8x8</code> tiles.</li>
+<li><code>64x64</code> uses <code>8x8</code> tiles but splits each tile into <code>4x4</code> quadrants to avoid conflict misses.</li>
+<li>The generic path uses larger clipped tiles because irregular dimensions make clean boundary handling more important than exact quadrant choreography.</li>
+</ul>
+<h2 id="part-a-cache-simulator-design">Part A: Cache Simulator Design</h2>
+<p>File: <a href="https://github.com/andrewikovic/cache/blob/main/csim.c">csim.c</a></p>
+<p>The simulator implements the Cache Lab command-line contract:</p>
+<pre><code class="language-text">Usage: ./csim [-hv] -s &lt;num&gt; -E &lt;num&gt; -b &lt;num&gt; -t &lt;file&gt;
+
+-h         print help
+-v         verbose trace output
+-s &lt;num&gt;   number of set index bits
+-E &lt;num&gt;   lines per set
+-b &lt;num&gt;   number of block offset bits
+-t &lt;file&gt;  trace file
+</code></pre>
+<p>It models only data-memory operations:</p>
+<ul>
+<li><code>I</code>: instruction fetch, ignored</li>
+<li><code>L</code>: load, one cache access</li>
+<li><code>S</code>: store, one cache access</li>
+<li><code>M</code>: modify, two cache accesses, equivalent to load then store</li>
+</ul>
+<p>The simulator does not need to model bytes inside a block. For hit/miss/eviction counts, each line needs only:</p>
+<ul>
+<li>a valid bit</li>
+<li>a tag</li>
+<li>an LRU timestamp</li>
+</ul>
+<h3 id="simulator-data-structures">Simulator Data Structures</h3>
+<p><a href="https://github.com/andrewikovic/cache/blob/main/csim.c">csim.c</a> defines three internal structures:</p>
+<pre><code class="language-c">typedef struct {
+    int valid;
+    unsigned long long tag;
+    unsigned long long last_used;
+} CacheLine;
+
+typedef struct {
+    CacheLine *lines;
+} CacheSet;
+
+typedef struct {
+    CacheSet *sets;
+    int s;
+    int E;
+    int b;
+    unsigned long long set_mask;
+    unsigned long long timestamp;
+    int hits;
+    int misses;
+    int evictions;
+} Cache;
+</code></pre>
+<p>This is an explicit set-associative cache:</p>
+<pre><code class="language-text">Cache
+  sets[0]
+    lines[0..E-1]
+  sets[1]
+    lines[0..E-1]
+  ...
+  sets[(1 &lt;&lt; s) - 1]
+    lines[0..E-1]
+</code></pre>
+<p>The implementation keeps the following invariants after successful initialization:</p>
+<pre><code class="language-text">cache.sets != NULL
+number of sets == 1ULL &lt;&lt; cache.s
+each set owns exactly cache.E CacheLine entries
+cache.timestamp starts at 0 and increases once per data access
+cache.hits, cache.misses, and cache.evictions start at 0
+</code></pre>
+<p>For each line:</p>
+<pre><code class="language-text">valid == 0:
+    tag and last_used are ignored
+
+valid == 1:
+    tag identifies the resident memory block
+    last_used is the timestamp of the most recent access to that line
+</code></pre>
+<h3 id="argument-parsing">Argument Parsing</h3>
+<p>The CLI parser uses <code>getopt</code> and a dedicated numeric parser:</p>
+<pre><code class="language-c">static int parse_int_arg(const char *text, int allow_zero, int *value)
+{
+    long parsed;
+    char *endptr;
+
+    if (text == NULL || *text == '\0') {
+        return 0;
+    }
+
+    errno = 0;
+    parsed = strtol(text, &amp;endptr, 10);
+    if (errno != 0 || *endptr != '\0') {
+        return 0;
+    }
+    if (parsed &lt; 0 || parsed &gt; INT_MAX) {
+        return 0;
+    }
+    if (!allow_zero &amp;&amp; parsed == 0) {
+        return 0;
+    }
+
+    *value = (int)parsed;
+    return 1;
+}
+</code></pre>
+<p>The parser rejects:</p>
+<ul>
+<li>null or empty text</li>
+<li>non-decimal suffixes such as <code>12x</code></li>
+<li>values that overflow <code>int</code></li>
+<li>negative values</li>
+<li>zero when the caller does not allow zero</li>
+</ul>
+<p>The option loop delegates validation to that helper:</p>
+<pre><code class="language-c">while ((opt = getopt(argc, argv, &quot;hvs:E:b:t:&quot;)) != -1) {
+    switch (opt) {
+    case 'h':
+        print_usage(argv[0]);
+        return 0;
+    case 'v':
+        verbose = 1;
+        break;
+    case 's':
+        if (!parse_int_arg(optarg, 1, &amp;s)) {
+            print_usage(argv[0]);
+            return 1;
+        }
+        have_s = 1;
+        break;
+    case 'E':
+        if (!parse_int_arg(optarg, 0, &amp;E)) {
+            print_usage(argv[0]);
+            return 1;
+        }
+        have_E = 1;
+        break;
+    case 'b':
+        if (!parse_int_arg(optarg, 1, &amp;b)) {
+            print_usage(argv[0]);
+            return 1;
+        }
+        have_b = 1;
+        break;
+    case 't':
+        trace_path = optarg;
+        break;
+    default:
+        print_usage(argv[0]);
+        return 1;
+    }
+}
+</code></pre>
+<p>Two details are intentional:</p>
+<ul>
+<li><code>E</code> must be positive, because a cache set with zero lines cannot be accessed safely.</li>
+<li><code>s</code> and <code>b</code> may be zero, because a one-set cache or one-byte block is still a meaningful model.</li>
+</ul>
+<p>After option parsing, the code verifies that all required options are present and that address shifts are safe:</p>
+<pre><code class="language-c">if (!have_s || !have_E || !have_b || trace_path == NULL) {
+    print_usage(argv[0]);
+    return 1;
+}
+if (s &gt;= addr_bits || b &gt;= addr_bits || s + b &gt;= addr_bits) {
+    print_usage(argv[0]);
+    return 1;
+}
+</code></pre>
+<p>This prevents undefined behavior from shifts at or beyond the width of <code>unsigned long long</code>.</p>
+<h3 id="cache-allocation">Cache Allocation</h3>
+<p><code>init_cache</code> initializes the metadata fields and allocates a two-level cache:</p>
+<pre><code class="language-c">static int init_cache(Cache *cache, int s, int E, int b)
+{
+    unsigned long long set_count;
+    unsigned long long set_index;
+
+    cache-&gt;sets = NULL;
+    cache-&gt;s = s;
+    cache-&gt;E = E;
+    cache-&gt;b = b;
+    cache-&gt;set_mask = (s == 0) ? 0ULL : ((1ULL &lt;&lt; s) - 1ULL);
+    cache-&gt;timestamp = 0ULL;
+    cache-&gt;hits = 0;
+    cache-&gt;misses = 0;
+    cache-&gt;evictions = 0;
+
+    set_count = 1ULL &lt;&lt; s;
+    cache-&gt;sets = (CacheSet *)calloc((size_t)set_count, sizeof(CacheSet));
+    if (cache-&gt;sets == NULL) {
+        return 0;
+    }
+</code></pre>
+<p>Each set receives its own line array:</p>
+<pre><code class="language-c">    for (set_index = 0; set_index &lt; set_count; ++set_index) {
+        cache-&gt;sets[set_index].lines = (CacheLine *)calloc((size_t)E, sizeof(CacheLine));
+        if (cache-&gt;sets[set_index].lines == NULL) {
+            unsigned long long cleanup_index;
+            for (cleanup_index = 0; cleanup_index &lt; set_index; ++cleanup_index) {
+                free(cache-&gt;sets[cleanup_index].lines);
+            }
+            free(cache-&gt;sets);
+            cache-&gt;sets = NULL;
+            return 0;
+        }
+    }
+
+    return 1;
+}
+</code></pre>
+<p>Using <code>calloc</code> gives every <code>valid</code> field an initial value of zero. The explicit cleanup path prevents leaks if allocation fails partway through.</p>
+<p>The matching deallocator is symmetrical:</p>
+<pre><code class="language-c">static void free_cache(Cache *cache)
+{
+    unsigned long long set_count;
+    unsigned long long set_index;
+
+    if (cache-&gt;sets == NULL) {
+        return;
+    }
+
+    set_count = 1ULL &lt;&lt; cache-&gt;s;
+    for (set_index = 0; set_index &lt; set_count; ++set_index) {
+        free(cache-&gt;sets[set_index].lines);
+    }
+    free(cache-&gt;sets);
+    cache-&gt;sets = NULL;
+}
+</code></pre>
+<p>The <code>cache-&gt;sets == NULL</code> guard makes cleanup safe on failure paths.</p>
+<h3 id="address-decomposition">Address Decomposition</h3>
+<p>The simulator precomputes <code>set_mask</code> once:</p>
+<pre><code class="language-c">cache-&gt;set_mask = (s == 0) ? 0ULL : ((1ULL &lt;&lt; s) - 1ULL);
+</code></pre>
+<p>Then each access extracts the set index and tag:</p>
+<pre><code class="language-c">set_index = (address &gt;&gt; cache-&gt;b) &amp; cache-&gt;set_mask;
+tag = address &gt;&gt; (cache-&gt;s + cache-&gt;b);
+</code></pre>
+<p>Example with <code>s = 4</code>, <code>E = 1</code>, <code>b = 4</code>:</p>
+<pre><code class="language-text">address    = 0x10
+set_mask   = 0xf
+set_index  = (0x10 &gt;&gt; 4) &amp; 0xf = 1
+tag        = 0x10 &gt;&gt; 8 = 0
+
+address    = 0x110
+set_index  = (0x110 &gt;&gt; 4) &amp; 0xf = 1
+tag        = 0x110 &gt;&gt; 8 = 1
+</code></pre>
+<p>Those two addresses map to the same set but have different tags. In a direct-mapped cache, the second access evicts the first if the first is still resident.</p>
+<h3 id="access-result-flags">Access Result Flags</h3>
+<p><code>access_cache</code> returns a bitmask that describes the outcome:</p>
+<pre><code class="language-c">enum {
+    ACCESS_HIT = 1,
+    ACCESS_MISS = 2,
+    ACCESS_EVICTION = 4
+};
+</code></pre>
+<p>The valid return values are:</p>
+<pre><code class="language-text">ACCESS_HIT                         -&gt; hit
+ACCESS_MISS                        -&gt; miss
+ACCESS_MISS | ACCESS_EVICTION      -&gt; miss eviction
+</code></pre>
+<p>There is no legal <code>ACCESS_HIT | ACCESS_EVICTION</code> result. Eviction is only possible after a miss in a full set.</p>
+<h3 id="lru-strategy">LRU Strategy</h3>
+<p>LRU is implemented with a single monotonic timestamp:</p>
+<pre><code class="language-c">cache-&gt;timestamp += 1ULL;
+</code></pre>
+<p>On a hit, the matching line receives the current timestamp:</p>
+<pre><code class="language-c">if (line-&gt;tag == tag) {
+    line-&gt;last_used = cache-&gt;timestamp;
+    cache-&gt;hits += 1;
+    return ACCESS_HIT;
+}
+</code></pre>
+<p>On a miss into a full set, the line with the smallest <code>last_used</code> value is evicted.</p>
+<p>This strategy is simple and appropriate here:</p>
+<ul>
+<li>no linked lists</li>
+<li>no line reordering</li>
+<li>no aging pass</li>
+<li>access time remains <code>O(E)</code></li>
+<li>replacement behavior is easy to audit</li>
+</ul>
+<h3 id="core-access-algorithm">Core Access Algorithm</h3>
+<p><code>access_cache</code> performs one pass over the target set:</p>
+<div class="diagram mermaid">
+flowchart TD
+    Start[&quot;access_cache(address)&quot;] --&gt; Decode[&quot;Compute set index and tag&quot;]
+    Decode --&gt; Scan[&quot;Scan lines in target set&quot;]
+    Scan --&gt; Hit{&quot;Valid line with matching tag?&quot;}
+    Hit --&gt;|yes| CountHit[&quot;Update last_used and hits&quot;]
+    CountHit --&gt; ReturnHit[&quot;Return ACCESS_HIT&quot;]
+    Hit --&gt;|no| Empty{&quot;Any invalid line?&quot;}
+    Empty --&gt;|yes| Fill[&quot;Fill first invalid line&quot;]
+    Fill --&gt; ReturnMiss[&quot;Return ACCESS_MISS&quot;]
+    Empty --&gt;|no| Evict[&quot;Replace least recently used line&quot;]
+    Evict --&gt; ReturnEvict[&quot;Return ACCESS_MISS | ACCESS_EVICTION&quot;]
+</div>
+<pre><code class="language-c">static int access_cache(Cache *cache, unsigned long long address)
+{
+    unsigned long long set_index;
+    unsigned long long tag;
+    CacheSet *set;
+    CacheLine *empty_line;
+    CacheLine *lru_line;
+    int line_index;
+
+    cache-&gt;timestamp += 1ULL;
+    set_index = (address &gt;&gt; cache-&gt;b) &amp; cache-&gt;set_mask;
+    tag = address &gt;&gt; (cache-&gt;s + cache-&gt;b);
+    set = &amp;cache-&gt;sets[set_index];
+    empty_line = NULL;
+    lru_line = NULL;
+</code></pre>
+<p>During the scan, the function tracks three possibilities:</p>
+<pre><code class="language-c">    for (line_index = 0; line_index &lt; cache-&gt;E; ++line_index) {
+        CacheLine *line = &amp;set-&gt;lines[line_index];
+
+        if (line-&gt;valid) {
+            if (line-&gt;tag == tag) {
+                line-&gt;last_used = cache-&gt;timestamp;
+                cache-&gt;hits += 1;
+                return ACCESS_HIT;
+            }
+            if (lru_line == NULL || line-&gt;last_used &lt; lru_line-&gt;last_used) {
+                lru_line = line;
+            }
+        } else if (empty_line == NULL) {
+            empty_line = line;
+        }
+    }
+</code></pre>
+<p>The three tracked outcomes are:</p>
+<pre><code class="language-text">tag match      -&gt; hit, return immediately
+invalid line   -&gt; remember first empty line
+valid nonmatch -&gt; update least-recently-used candidate
+</code></pre>
+<p>If the scan finishes without a hit, the access is a miss:</p>
+<pre><code class="language-c">    cache-&gt;misses += 1;
+    if (empty_line != NULL) {
+        empty_line-&gt;valid = 1;
+        empty_line-&gt;tag = tag;
+        empty_line-&gt;last_used = cache-&gt;timestamp;
+        return ACCESS_MISS;
+    }
+
+    lru_line-&gt;tag = tag;
+    lru_line-&gt;last_used = cache-&gt;timestamp;
+    cache-&gt;evictions += 1;
+    return ACCESS_MISS | ACCESS_EVICTION;
+}
+</code></pre>
+<p>The miss behavior is:</p>
+<ol>
+<li>Fill the first empty line if one exists.</li>
+<li>Otherwise overwrite the least recently used line.</li>
+<li>Count an eviction only in the overwrite case.</li>
+</ol>
+<p>That gives the key counter invariant:</p>
+<pre><code class="language-text">hits + misses == number of data accesses simulated
+evictions &lt;= misses
+</code></pre>
+<h3 id="trace-parsing">Trace Parsing</h3>
+<p>The trace loop reads line by line:</p>
+<pre><code class="language-c">while (fgets(buffer, (int)sizeof(buffer), trace_file) != NULL) {
+    char op;
+    unsigned long long address;
+    int size;
+
+    if (sscanf(buffer, &quot; %c %llx,%d&quot;, &amp;op, &amp;address, &amp;size) != 3) {
+        continue;
+    }
+    if (op == 'I') {
+        continue;
+    }
+</code></pre>
+<p>The leading space in the format string allows either leading-space Valgrind lines or no-leading-space lines:</p>
+<pre><code class="language-c">&quot; %c %llx,%d&quot;
+</code></pre>
+<p>For verbose mode, the original operation is printed before the result tokens:</p>
+<pre><code class="language-c">    if (verbose) {
+        printf(&quot;%c %llx,%d&quot;, op, address, size);
+    }
+</code></pre>
+<p>Then the operation dispatch applies the Cache Lab semantics:</p>
+<pre><code class="language-c">    if (op == 'L' || op == 'S') {
+        int result = access_cache(&amp;cache, address);
+        if (verbose) {
+            print_result_tokens(result);
+            printf(&quot;\n&quot;);
+        }
+    } else if (op == 'M') {
+        int first = access_cache(&amp;cache, address);
+        int second = access_cache(&amp;cache, address);
+        if (verbose) {
+            print_result_tokens(first);
+            print_result_tokens(second);
+            printf(&quot;\n&quot;);
+        }
+    }
+}
+</code></pre>
+<p>For <code>M</code>, the second access should always hit because the first access either already hit or loaded the block:</p>
+<pre><code class="language-text">M address,size
+    first access:  hit OR miss OR miss eviction
+    second access: hit
+</code></pre>
+<h3 id="verbose-output-formatting">Verbose Output Formatting</h3>
+<p>The verbose printer orders tokens to match the expected reference style:</p>
+<pre><code class="language-c">static void print_result_tokens(int result)
+{
+    if ((result &amp; ACCESS_MISS) != 0) {
+        printf(&quot; miss&quot;);
+    }
+    if ((result &amp; ACCESS_EVICTION) != 0) {
+        printf(&quot; eviction&quot;);
+    }
+    if ((result &amp; ACCESS_HIT) != 0) {
+        printf(&quot; hit&quot;);
+    }
+}
+</code></pre>
+<p>A cold modify that does not evict prints:</p>
+<pre><code class="language-text">M 20,1 miss hit
+</code></pre>
+<p>A modify that misses, evicts, then hits prints:</p>
+<pre><code class="language-text">M 12,1 miss eviction hit
+</code></pre>
+<h3 id="example-trace-walkthrough">Example Trace Walkthrough</h3>
+<p><a href="https://github.com/andrewikovic/cache/blob/main/traces/yi.trace">traces/yi.trace</a> contains:</p>
+<pre><code class="language-text"> L 10,1
+ M 20,1
+ L 22,1
+ S 18,1
+ L 110,1
+ L 210,1
+ M 12,1
+</code></pre>
+<p>With <code>s = 4</code>, <code>E = 1</code>, <code>b = 4</code>, the current simulator prints:</p>
+<pre><code class="language-text">L 10,1 miss
+M 20,1 miss hit
+L 22,1 hit
+S 18,1 hit
+L 110,1 miss eviction
+L 210,1 miss eviction
+M 12,1 miss eviction hit
+hits:4 misses:5 evictions:3
+</code></pre>
+<p>The final summary comes from <code>printSummary</code>:</p>
+<pre><code class="language-c">void printSummary(int hits, int misses, int evictions)
+{
+    printf(&quot;hits:%d misses:%d evictions:%d\n&quot;, hits, misses, evictions);
+    FILE* output_fp = fopen(&quot;.csim_results&quot;, &quot;w&quot;);
+    assert(output_fp);
+    fprintf(output_fp, &quot;%d %d %d\n&quot;, hits, misses, evictions);
+    fclose(output_fp);
+}
+</code></pre>
+<p>That helper both prints to stdout and writes <code>.csim_results</code>, which the grading tools consume.</p>
+<h3 id="error-handling-and-cleanup">Error Handling And Cleanup</h3>
+<p>The simulator handles allocation failure:</p>
+<pre><code class="language-c">if (!init_cache(&amp;cache, s, E, b)) {
+    fprintf(stderr, &quot;Failed to allocate cache\n&quot;);
+    return 1;
+}
+</code></pre>
+<p>It also handles trace-open failure and releases already allocated cache memory:</p>
+<pre><code class="language-c">trace_file = fopen(trace_path, &quot;r&quot;);
+if (trace_file == NULL) {
+    fprintf(stderr, &quot;%s: %s\n&quot;, trace_path, strerror(errno));
+    free_cache(&amp;cache);
+    return 1;
+}
+</code></pre>
+<p>The success path closes the file, reports results, and frees the cache:</p>
+<pre><code class="language-c">fclose(trace_file);
+printSummary(cache.hits, cache.misses, cache.evictions);
+free_cache(&amp;cache);
+return 0;
+</code></pre>
+<h3 id="simulator-complexity">Simulator Complexity</h3>
+<p>Let:</p>
+<pre><code class="language-text">S = 2^s sets
+E = lines per set
+T = number of data accesses in the trace after ignoring I operations
+</code></pre>
+<p>Then:</p>
+<pre><code class="language-text">memory complexity:        O(S * E)
+time per access:          O(E)
+total trace processing:   O(T * E)
+</code></pre>
+<p>This is expected for a direct explicit set-associative simulator. Because Cache Lab traces use small <code>E</code>, the one-pass set scan is simpler than a more complex replacement data structure.</p>
+<h3 id="simulator-design-review">Simulator Design Review</h3>
+<p>The simulator is intentionally compact, but it has the important robustness properties:</p>
+<ul>
+<li>64-bit addresses are parsed with <code>%llx</code>.</li>
+<li>shift widths are validated before cache initialization.</li>
+<li>invalid numeric arguments are rejected instead of silently accepted.</li>
+<li>partial allocation failure is cleaned up.</li>
+<li>LRU behavior is deterministic.</li>
+<li><code>M</code> operations are implemented as two ordinary accesses.</li>
+<li>verbose mode prints result tokens in reference-compatible order.</li>
+</ul>
+<p>The main limitation is that unknown non-<code>I</code>, non-<code>L</code>, non-<code>S</code>, non-<code>M</code> parsed operations are silently ignored after optional operation printing has already occurred. The provided traces do not contain such operations, so this does not affect the grading workload.</p>
+<h2 id="part-b-matrix-transpose-design">Part B: Matrix Transpose Design</h2>
+<p>File: <a href="https://github.com/andrewikovic/cache/blob/main/trans.c">trans.c</a></p>
+<p>The transpose function must implement:</p>
+<pre><code class="language-c">void trans(int M, int N, int A[N][M], int B[M][N]);
+</code></pre>
+<p>The required result is:</p>
+<pre><code class="language-text">B[col][row] == A[row][col]
+</code></pre>
+<p>The implementation is evaluated on a direct-mapped <code>1KB</code> cache with <code>32-byte</code> blocks. The code is written to respect typical Cache Lab constraints:</p>
+<ul>
+<li>no heap allocation in the transpose functions</li>
+<li>no recursion</li>
+<li>no local arrays inside the optimized transpose path</li>
+<li>scalar temporaries only</li>
+<li>straightforward control flow that the trace generator can measure cleanly</li>
+</ul>
+<h3 id="function-map">Function Map</h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>transpose_submit</code></td>
+<td>Graded entry point, dispatches by matrix dimensions</td>
+</tr>
+<tr>
+<td><code>transpose_32</code></td>
+<td>Specialized <code>32x32</code> implementation using <code>8x8</code> tiles</td>
+</tr>
+<tr>
+<td><code>transpose_64</code></td>
+<td>Specialized <code>64x64</code> implementation using staged <code>8x8</code> tiles split into <code>4x4</code> quadrants</td>
+</tr>
+<tr>
+<td><code>transpose_generic</code></td>
+<td>Bounded <code>16x16</code> blocked traversal for all other dimensions</td>
+</tr>
+<tr>
+<td><code>trans</code></td>
+<td>Simple baseline implementation registered for comparison</td>
+</tr>
+<tr>
+<td><code>registerFunctions</code></td>
+<td>Registers both the optimized and baseline functions with the test harness</td>
+</tr>
+<tr>
+<td><code>is_transpose</code></td>
+<td>Correctness checker helper</td>
+</tr>
+</tbody>
+</table>
+<p>The registration function is:</p>
+<pre><code class="language-c">void registerFunctions()
+{
+    registerTransFunction(transpose_submit, transpose_submit_desc);
+    registerTransFunction(trans, trans_desc);
+}
+</code></pre>
+<p>The grading harness identifies the official solution by description string:</p>
+<pre><code class="language-c">#define SUBMIT_DESCRIPTION &quot;Transpose submission&quot;
+</code></pre>
+<p>That is why <a href="https://github.com/andrewikovic/cache/blob/main/trans.c">trans.c</a> preserves:</p>
+<pre><code class="language-c">char transpose_submit_desc[] = &quot;Transpose submission&quot;;
+</code></pre>
+<h3 id="row-major-address-math">Row-Major Address Math</h3>
+<p>C stores <code>int A[N][M]</code> in row-major order. The element address formulas are:</p>
+<pre><code class="language-c">address(A[r][c]) = base_A + sizeof(int) * (r * M + c);
+address(B[c][r]) = base_B + sizeof(int) * (c * N + r);
+</code></pre>
+<p>For the transpose grading cache:</p>
+<pre><code class="language-c">set_index = (address &gt;&gt; 5) &amp; 31;
+</code></pre>
+<p>Contiguous source-row reads are cache friendly:</p>
+<pre><code class="language-c">A[k][j + 0];
+A[k][j + 1];
+A[k][j + 2];
+A[k][j + 3];
+A[k][j + 4];
+A[k][j + 5];
+A[k][j + 6];
+A[k][j + 7];
+</code></pre>
+<p>Those eight <code>int</code> values occupy exactly one <code>32-byte</code> cache block.</p>
+<p>The corresponding writes are transposed:</p>
+<pre><code class="language-c">B[j + 0][k] = a0;
+B[j + 1][k] = a1;
+B[j + 2][k] = a2;
+B[j + 3][k] = a3;
+B[j + 4][k] = a4;
+B[j + 5][k] = a5;
+B[j + 6][k] = a6;
+B[j + 7][k] = a7;
+</code></pre>
+<p>Those writes touch different rows of <code>B</code>. The transpose implementations are therefore organized around preserving source locality while controlling the order of destination writes.</p>
+<h2 id="32x32-transpose"><code>32x32</code> Transpose</h2>
+<p>The <code>32x32</code> path uses <code>8x8</code> blocking:</p>
+<pre><code class="language-c">static void transpose_32(int M, int N, int A[N][M], int B[M][N])
+{
+    int i, j, k;
+    int a0, a1, a2, a3, a4, a5, a6, a7;
+
+    for (i = 0; i &lt; N; i += 8) {
+        for (j = 0; j &lt; M; j += 8) {
+            for (k = i; k &lt; i + 8; ++k) {
+                a0 = A[k][j];
+                a1 = A[k][j + 1];
+                a2 = A[k][j + 2];
+                a3 = A[k][j + 3];
+                a4 = A[k][j + 4];
+                a5 = A[k][j + 5];
+                a6 = A[k][j + 6];
+                a7 = A[k][j + 7];
+</code></pre>
+<p>The loaded row is written into the transposed destination positions:</p>
+<pre><code class="language-c">                B[j][k] = a0;
+                B[j + 1][k] = a1;
+                B[j + 2][k] = a2;
+                B[j + 3][k] = a3;
+                B[j + 4][k] = a4;
+                B[j + 5][k] = a5;
+                B[j + 6][k] = a6;
+                B[j + 7][k] = a7;
+            }
+        }
+    }
+}
+</code></pre>
+<p>The tile behavior is:</p>
+<pre><code class="language-text">for each 8x8 tile:
+    for each row k in the tile:
+        read A[k][j..j+7] into scalar temporaries
+        write the eight values to B[j..j+7][k]
+</code></pre>
+<p>The code uses scalar temporaries for a practical reason:</p>
+<pre><code class="language-text">load the complete source cache block first
+then perform destination writes
+</code></pre>
+<p>Without the scalar staging, destination writes could evict source data before all eight values were consumed.</p>
+<p>The correctness invariant for each row inside a tile is:</p>
+<pre><code class="language-c">B[j + 0][k] == A[k][j + 0];
+B[j + 1][k] == A[k][j + 1];
+B[j + 2][k] == A[k][j + 2];
+B[j + 3][k] == A[k][j + 3];
+B[j + 4][k] == A[k][j + 4];
+B[j + 5][k] == A[k][j + 5];
+B[j + 6][k] == A[k][j + 6];
+B[j + 7][k] == A[k][j + 7];
+</code></pre>
+<p>Because <code>32</code> is divisible by <code>8</code>, there is no boundary handling in this helper. The loops cover exactly:</p>
+<pre><code class="language-text">row tiles: 0, 8, 16, 24
+col tiles: 0, 8, 16, 24
+</code></pre>
+<p>The recorded result for this implementation is:</p>
+<pre><code class="language-text">32x32 transpose: 287 misses
+</code></pre>
+<p>The driver awards full performance credit at or below <code>300</code> misses for this case.</p>
+<h2 id="64x64-transpose"><code>64x64</code> Transpose</h2>
+<p>The <code>64x64</code> path is the most important part of <a href="https://github.com/andrewikovic/cache/blob/main/trans.c">trans.c</a>. A simple <code>8x8</code> strategy works well for <code>32x32</code>, but it performs poorly on <code>64x64</code> because direct-mapped set conflicts become much more frequent.</p>
+<p>The implementation still uses <code>8x8</code> tiles, but it splits each tile into four <code>4x4</code> quadrants:</p>
+<pre><code class="language-text">Source tile A[i..i+7][j..j+7]
+
+              j..j+3       j+4..j+7
+            +-----------+-----------+
+i..i+3      |    UL     |    UR     |
+            |   4 x 4   |   4 x 4   |
+            +-----------+-----------+
+i+4..i+7    |    LL     |    LR     |
+            |   4 x 4   |   4 x 4   |
+            +-----------+-----------+
+</code></pre>
+<p>The final destination tile in <code>B</code> must contain:</p>
+<pre><code class="language-text">Destination tile B[j..j+7][i..i+7]
+
+              i..i+3       i+4..i+7
+            +-----------+-----------+
+j..j+3      |   UL^T    |   LL^T    |
+            |   4 x 4   |   4 x 4   |
+            +-----------+-----------+
+j+4..j+7    |   UR^T    |   LR^T    |
+            |   4 x 4   |   4 x 4   |
+            +-----------+-----------+
+</code></pre>
+<p>The code reaches that final state in three phases.</p>
+<h3 id="phase-1-load-upper-rows-and-stage-upper-right-data">Phase 1: Load Upper Rows And Stage Upper-Right Data</h3>
+<p>The first loop handles the top four source rows:</p>
+<pre><code class="language-c">for (k = 0; k &lt; 4; ++k) {
+    a0 = A[i + k][j];
+    a1 = A[i + k][j + 1];
+    a2 = A[i + k][j + 2];
+    a3 = A[i + k][j + 3];
+    a4 = A[i + k][j + 4];
+    a5 = A[i + k][j + 5];
+    a6 = A[i + k][j + 6];
+    a7 = A[i + k][j + 7];
+
+    B[j][i + k] = a0;
+    B[j + 1][i + k] = a1;
+    B[j + 2][i + k] = a2;
+    B[j + 3][i + k] = a3;
+    B[j][i + k + 4] = a4;
+    B[j + 1][i + k + 4] = a5;
+    B[j + 2][i + k + 4] = a6;
+    B[j + 3][i + k + 4] = a7;
+}
+</code></pre>
+<p>The first four writes are final:</p>
+<pre><code class="language-c">B[j + 0][i + k] = A[i + k][j + 0];
+B[j + 1][i + k] = A[i + k][j + 1];
+B[j + 2][i + k] = A[i + k][j + 2];
+B[j + 3][i + k] = A[i + k][j + 3];
+</code></pre>
+<p>The last four writes are staging writes:</p>
+<pre><code class="language-c">B[j + 0][i + k + 4] = A[i + k][j + 4];
+B[j + 1][i + k + 4] = A[i + k][j + 5];
+B[j + 2][i + k + 4] = A[i + k][j + 6];
+B[j + 3][i + k + 4] = A[i + k][j + 7];
+</code></pre>
+<p>After phase 1, the tile in <code>B</code> looks like:</p>
+<pre><code class="language-text">              i..i+3       i+4..i+7
+            +-----------+-----------+
+j..j+3      |   UL^T    | UR^T temp |
+            |   final   |  staged   |
+            +-----------+-----------+
+j+4..j+7    |  unused   |  unused   |
+            +-----------+-----------+
+</code></pre>
+<p>The staging area is deliberate. It holds <code>UR^T</code> in rows <code>j..j+3</code> until the lower-left source values can be loaded and written efficiently.</p>
+<h3 id="phase-2-swap-staged-upper-right-with-lower-left">Phase 2: Swap Staged Upper-Right With Lower-Left</h3>
+<p>The second loop processes one left-column slice of the bottom half at a time:</p>
+<pre><code class="language-c">for (k = 0; k &lt; 4; ++k) {
+    a0 = B[j + k][i + 4];
+    a1 = B[j + k][i + 5];
+    a2 = B[j + k][i + 6];
+    a3 = B[j + k][i + 7];
+
+    a4 = A[i + 4][j + k];
+    a5 = A[i + 5][j + k];
+    a6 = A[i + 6][j + k];
+    a7 = A[i + 7][j + k];
+</code></pre>
+<p>The first four loads recover the staged <code>UR^T</code> values from <code>B</code>. The next four loads read the <code>LL</code> values from <code>A</code>.</p>
+<p>Then the code writes <code>LL^T</code> into the upper-right destination quadrant:</p>
+<pre><code class="language-c">    B[j + k][i + 4] = a4;
+    B[j + k][i + 5] = a5;
+    B[j + k][i + 6] = a6;
+    B[j + k][i + 7] = a7;
+</code></pre>
+<p>Finally it moves the staged <code>UR^T</code> values into the lower-left destination quadrant:</p>
+<pre><code class="language-c">    B[j + 4 + k][i] = a0;
+    B[j + 4 + k][i + 1] = a1;
+    B[j + 4 + k][i + 2] = a2;
+    B[j + 4 + k][i + 3] = a3;
+}
+</code></pre>
+<p>After phase 2:</p>
+<pre><code class="language-text">              i..i+3       i+4..i+7
+            +-----------+-----------+
+j..j+3      |   UL^T    |   LL^T    |
+            |   final   |   final   |
+            +-----------+-----------+
+j+4..j+7    |   UR^T    |  pending  |
+            |   final   |           |
+            +-----------+-----------+
+</code></pre>
+<p>The postconditions are:</p>
+<pre><code class="language-c">/* For k = 0..3 and q = 0..3. */
+B[j + k][i + 4 + q] == A[i + 4 + q][j + k];
+B[j + 4 + k][i + q] == A[i + q][j + 4 + k];
+</code></pre>
+<p>This is the central optimization. <code>B</code> is used as a temporary staging area so that the source tile can be consumed in an order that avoids the worst direct-mapped conflict pattern.</p>
+<h3 id="phase-3-write-lower-right-directly">Phase 3: Write Lower-Right Directly</h3>
+<p>The last loop handles the lower-right quadrant:</p>
+<pre><code class="language-c">for (k = 0; k &lt; 4; ++k) {
+    a0 = A[i + 4 + k][j + 4];
+    a1 = A[i + 4 + k][j + 5];
+    a2 = A[i + 4 + k][j + 6];
+    a3 = A[i + 4 + k][j + 7];
+
+    B[j + 4][i + 4 + k] = a0;
+    B[j + 5][i + 4 + k] = a1;
+    B[j + 6][i + 4 + k] = a2;
+    B[j + 7][i + 4 + k] = a3;
+}
+</code></pre>
+<p>After this, all four destination quadrants are final:</p>
+<pre><code class="language-text">              i..i+3       i+4..i+7
+            +-----------+-----------+
+j..j+3      |   UL^T    |   LL^T    |
+            |   final   |   final   |
+            +-----------+-----------+
+j+4..j+7    |   UR^T    |   LR^T    |
+            |   final   |   final   |
+            +-----------+-----------+
+</code></pre>
+<p>The final postcondition is:</p>
+<pre><code class="language-c">/* For q = 0..3 and k = 0..3. */
+B[j + 4 + q][i + 4 + k] == A[i + 4 + k][j + 4 + q];
+</code></pre>
+<h3 id="64x64-algorithm-summary"><code>64x64</code> Algorithm Summary</h3>
+<p>One <code>8x8</code> tile is processed as:</p>
+<div class="diagram mermaid">
+flowchart TD
+    Tile[&quot;One 8x8 tile&quot;] --&gt; P1[&quot;Phase 1: load upper rows&quot;]
+    P1 --&gt; UL[&quot;Write UL^T to final B positions&quot;]
+    P1 --&gt; Stage[&quot;Stage UR^T in upper-right B area&quot;]
+    Stage --&gt; P2[&quot;Phase 2: process lower-left values&quot;]
+    UL --&gt; P2
+    P2 --&gt; LL[&quot;Write LL^T over staging area&quot;]
+    P2 --&gt; MoveUR[&quot;Move staged UR^T to final lower-left B area&quot;]
+    LL --&gt; P3[&quot;Phase 3: load lower-right rows&quot;]
+    MoveUR --&gt; P3
+    P3 --&gt; LR[&quot;Write LR^T to final B positions&quot;]
+    LR --&gt; Done[&quot;Complete transposed 8x8 tile&quot;]
+</div>
+<pre><code class="language-text">phase 1:
+    read top four rows of A
+    write UL^T to final B positions
+    stage UR^T in the upper-right area of B
+
+phase 2:
+    read staged UR^T back from B
+    read LL from A
+    write LL^T to final upper-right positions
+    move staged UR^T to final lower-left positions
+
+phase 3:
+    read LR from A
+    write LR^T to final lower-right positions
+</code></pre>
+<p>As compact pseudocode:</p>
+<pre><code class="language-text">for each 8x8 tile (i, j):
+    for k in 0..3:
+        load A top row: UL values and UR values
+        write UL to final B
+        stage UR in B
+
+    for k in 0..3:
+        load staged UR from B
+        load LL column from A
+        write LL to final B
+        move UR to final B
+
+    for k in 0..3:
+        load LR row from A
+        write LR to final B
+</code></pre>
+<p>The recorded result for this implementation is:</p>
+<pre><code class="language-text">64x64 transpose: 1227 misses
+</code></pre>
+<p>The driver awards full performance credit at or below <code>1300</code> misses. This is the strongest evidence that the code is doing more than ordinary blocking.</p>
+<h2 id="generic-transpose-for-irregular-sizes">Generic Transpose For Irregular Sizes</h2>
+<p>The generic helper handles all non-<code>32x32</code>, non-<code>64x64</code> inputs:</p>
+<pre><code class="language-c">static void transpose_generic(int M, int N, int A[N][M], int B[M][N])
+{
+    int i, j, k, l;
+
+    for (i = 0; i &lt; N; i += 16) {
+        for (j = 0; j &lt; M; j += 16) {
+            for (k = i; k &lt; N &amp;&amp; k &lt; i + 16; ++k) {
+                for (l = j; l &lt; M &amp;&amp; l &lt; j + 16; ++l) {
+                    B[l][k] = A[k][l];
+                }
+            }
+        }
+    }
+}
+</code></pre>
+<p>For the graded irregular case, <code>M = 61</code> and <code>N = 67</code>, so the loops cover:</p>
+<pre><code class="language-text">row starts: 0, 16, 32, 48, 64
+col starts: 0, 16, 32, 48
+</code></pre>
+<p>The boundary conditions clip partial tiles:</p>
+<pre><code class="language-c">k &lt; N &amp;&amp; k &lt; i + 16
+l &lt; M &amp;&amp; l &lt; j + 16
+</code></pre>
+<p>For the last row tile:</p>
+<pre><code class="language-text">i = 64
+k = 64, 65, 66
+</code></pre>
+<p>For the last column tile:</p>
+<pre><code class="language-text">j = 48
+l = 48..60
+</code></pre>
+<p>The helper never reads or writes outside the valid matrix bounds. Its implicit tile contract is:</p>
+<pre><code class="language-c">row_start = i;
+row_end = min(i + 16, N);
+col_start = j;
+col_end = min(j + 16, M);
+
+for (k = row_start; k &lt; row_end; ++k) {
+    for (l = col_start; l &lt; col_end; ++l) {
+        B[l][k] = A[k][l];
+    }
+}
+</code></pre>
+<p>The generic path is intentionally less intricate than the <code>64x64</code> path. Irregular dimensions are harder to choreograph perfectly, and the full-credit threshold is looser. A clean clipped-block traversal gives strong locality without adding fragile dimension-specific code.</p>
+<p>The recorded result for this implementation is:</p>
+<pre><code class="language-text">61x67 transpose: 1992 misses
+</code></pre>
+<p>The driver awards full performance credit at or below <code>2000</code> misses.</p>
+<h2 id="baseline-transpose-and-correctness-helper">Baseline Transpose And Correctness Helper</h2>
+<p><a href="https://github.com/andrewikovic/cache/blob/main/trans.c">trans.c</a> keeps a simple transpose implementation for comparison:</p>
+<pre><code class="language-c">char trans_desc[] = &quot;Simple row-wise scan transpose&quot;;
+void trans(int M, int N, int A[N][M], int B[M][N])
+{
+    int i, j, tmp;
+
+    for (i = 0; i &lt; N; i++) {
+        for (j = 0; j &lt; M; j++) {
+            tmp = A[i][j];
+            B[j][i] = tmp;
+        }
+    }
+}
+</code></pre>
+<p>This baseline is correct but not optimized. It exists so the test harness can report multiple registered functions.</p>
+<p>The local correctness helper checks the transpose relation directly:</p>
+<pre><code class="language-c">int is_transpose(int M, int N, int A[N][M], int B[M][N])
+{
+    int i, j;
+
+    for (i = 0; i &lt; N; i++) {
+        for (j = 0; j &lt; M; ++j) {
+            if (A[i][j] != B[j][i]) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+</code></pre>
+<p>The test harness uses its own validation path in <a href="https://github.com/andrewikovic/cache/blob/main/tracegen.c">tracegen.c</a>, but this helper documents the exact correctness property the optimized code must satisfy.</p>
+<h2 id="evaluation-harness-design">Evaluation Harness Design</h2>
+<p>The Part B evaluation path is worth understanding because it explains why <a href="https://github.com/andrewikovic/cache/blob/main/trans.c">trans.c</a> is written with explicit memory operations.</p>
+<h3 id="function-registration">Function Registration</h3>
+<p><a href="https://github.com/andrewikovic/cache/blob/main/cachelab.h">cachelab.h</a> defines the registration type:</p>
+<pre><code class="language-c">typedef struct trans_func{
+  void (*func_ptr)(int M,int N,int[N][M],int[M][N]);
+  char* description;
+  char correct;
+  unsigned int num_hits;
+  unsigned int num_misses;
+  unsigned int num_evictions;
+} trans_func_t;
+</code></pre>
+<p><a href="https://github.com/andrewikovic/cache/blob/main/cachelab.c">cachelab.c</a> stores registered functions in a global array:</p>
+<pre><code class="language-c">trans_func_t func_list[MAX_TRANS_FUNCS];
+int func_counter = 0;
+</code></pre>
+<p>Registration appends to that array:</p>
+<pre><code class="language-c">void registerTransFunction(void (*trans)(int M, int N, int[N][M], int[M][N]),
+                           char* desc)
+{
+    func_list[func_counter].func_ptr = trans;
+    func_list[func_counter].description = desc;
+    func_list[func_counter].correct = 0;
+    func_list[func_counter].num_hits = 0;
+    func_list[func_counter].num_misses = 0;
+    func_list[func_counter].num_evictions =0;
+    func_counter++;
+}
+</code></pre>
+<h3 id="trace-generation">Trace Generation</h3>
+<p><a href="https://github.com/andrewikovic/cache/blob/main/tracegen.c">tracegen.c</a> creates static matrices:</p>
+<pre><code class="language-c">static int A[256][256];
+static int B[256][256];
+static int M;
+static int N;
+</code></pre>
+<p>It records marker addresses:</p>
+<pre><code class="language-c">volatile char MARKER_START, MARKER_END;
+</code></pre>
+<p>Before and after each transpose call, it touches those markers:</p>
+<pre><code class="language-c">MARKER_START = 33;
+(*func_list[selectedFunc].func_ptr)(M, N, A, B);
+MARKER_END = 34;
+</code></pre>
+<p><a href="https://github.com/andrewikovic/cache/blob/main/test-trans.c">test-trans.c</a> uses those marker addresses to isolate the trace region for the transpose function.</p>
+<h3 id="correctness-validation">Correctness Validation</h3>
+<p>The harness builds a known-correct result:</p>
+<pre><code class="language-c">int C[M][N];
+memset(C,0,sizeof(C));
+correctTrans(M,N,A,C);
+</code></pre>
+<p>Then it compares the candidate output:</p>
+<pre><code class="language-c">for(int i=0;i&lt;M;i++) {
+    for(int j=0;j&lt;N;j++) {
+        if(B[i][j]!=C[i][j]) {
+            printf(&quot;Validation failed on function %d! Expected %d but got %d at B[%d][%d]\n&quot;,fn,C[i][j],B[i][j],i,j);
+            return 0;
+        }
+    }
+}
+return 1;
+</code></pre>
+<p>This means performance is only meaningful if correctness passes first.</p>
+<h3 id="trace-filtering">Trace Filtering</h3>
+<p><a href="https://github.com/andrewikovic/cache/blob/main/test-trans.c">test-trans.c</a> runs Valgrind Lackey:</p>
+<pre><code class="language-c">sprintf(cmd, &quot;valgrind --tool=lackey --trace-mem=yes --log-fd=1 -v ./tracegen -M %d -N %d -F %d  &gt; trace.tmp&quot;, M, N,i);
+</code></pre>
+<p>Then it filters trace lines between marker accesses:</p>
+<pre><code class="language-c">if (addr == marker_start)
+    flag = 1;
+
+if (flag &amp;&amp; addr &lt; 0xffffffff) {
+    fputs(buf, part_trace_fp);
+}
+
+if (addr == marker_end) {
+    flag = 0;
+    fclose(part_trace_fp);
+    break;
+}
+</code></pre>
+<p>The <code>addr &lt; 0xffffffff</code> filter is the assignment's simple way to ignore many stack references emitted by Valgrind.</p>
+<h3 id="performance-measurement">Performance Measurement</h3>
+<p>The harness evaluates the filtered trace with the reference simulator:</p>
+<pre><code class="language-c">sprintf(cmd, &quot;./csim-ref -s %u -E %u -b %u -t trace.f%d &gt; /dev/null&quot;,
+        s, E, b, i);
+system(cmd);
+</code></pre>
+<p>Then it reads <code>.csim_results</code>:</p>
+<pre><code class="language-c">FILE* in_fp = fopen(&quot;.csim_results&quot;,&quot;r&quot;);
+assert(in_fp);
+fscanf(in_fp, &quot;%u %u %u&quot;, &amp;hits, &amp;misses, &amp;evictions);
+fclose(in_fp);
+</code></pre>
+<p>This is why the transpose code is judged by memory-reference behavior rather than wall-clock time.</p>
+<h2 id="scoring-model">Scoring Model</h2>
+<p><a href="https://github.com/andrewikovic/cache/blob/main/driver.py">driver.py</a> defines the maximum points:</p>
+<pre><code class="language-python">maxscore= {};
+maxscore['csim'] = 27
+maxscore['transc'] = 1
+maxscore['trans32'] = 8
+maxscore['trans64'] = 8
+maxscore['trans61'] = 10
+</code></pre>
+<p>Miss scores are computed by linear interpolation:</p>
+<pre><code class="language-python">def computeMissScore(miss, lower, upper, full_score):
+    if miss &lt;= lower:
+        return full_score
+    if miss &gt;= upper:
+        return 0
+
+    score = (miss - lower) * 1.0
+    range = (upper- lower) * 1.0
+    return round((1 - score / range) * full_score, 1)
+</code></pre>
+<p>The thresholds are:</p>
+<pre><code class="language-python">trans32_score = computeMissScore(miss32, 300, 600, maxscore['trans32']) * int(result32[0])
+trans64_score = computeMissScore(miss64, 1300, 2000, maxscore['trans64']) * int(result64[0])
+trans61_score = computeMissScore(miss61, 2000, 3000, maxscore['trans61']) * int(result61[0])
+</code></pre>
+<p>So the full-score miss ceilings are:</p>
+<table>
+<thead>
+<tr>
+<th>Workload</th>
+<th style="text-align: right;">Full score at or below</th>
+<th style="text-align: right;">Zero score at or above</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>32x32</code></td>
+<td style="text-align: right;"><code>300</code> misses</td>
+<td style="text-align: right;"><code>600</code> misses</td>
+</tr>
+<tr>
+<td><code>64x64</code></td>
+<td style="text-align: right;"><code>1300</code> misses</td>
+<td style="text-align: right;"><code>2000</code> misses</td>
+</tr>
+<tr>
+<td><code>61x67</code></td>
+<td style="text-align: right;"><code>2000</code> misses</td>
+<td style="text-align: right;"><code>3000</code> misses</td>
+</tr>
+</tbody>
+</table>
+<p>The recorded project results are:</p>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th style="text-align: right;">Result</th>
+<th>Interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cache simulator</td>
+<td style="text-align: right;"><code>27/27</code></td>
+<td>Perfect Part A correctness under the official checker</td>
+</tr>
+<tr>
+<td><code>32x32</code> transpose</td>
+<td style="text-align: right;"><code>287</code> misses</td>
+<td>Full-score range</td>
+</tr>
+<tr>
+<td><code>64x64</code> transpose</td>
+<td style="text-align: right;"><code>1227</code> misses</td>
+<td>Full-score range</td>
+</tr>
+<tr>
+<td><code>61x67</code> transpose</td>
+<td style="text-align: right;"><code>1992</code> misses</td>
+<td>Full-score range</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>64x64</code> result is the most technically meaningful performance result because it requires avoiding direct-mapped conflict behavior that ordinary <code>8x8</code> blocking does not handle well.</p>
+<h2 id="correctness-contracts">Correctness Contracts</h2>
+<h3 id="simulator-contracts">Simulator Contracts</h3>
+<p>For every data access:</p>
+<pre><code class="language-text">exactly one of these happens:
+    hit
+    miss without eviction
+    miss with eviction
+</code></pre>
+<p>Counter updates must satisfy:</p>
+<pre><code class="language-text">hit:
+    hits += 1
+
+miss without eviction:
+    misses += 1
+
+miss with eviction:
+    misses += 1
+    evictions += 1
+</code></pre>
+<p>For every <code>M</code> operation:</p>
+<pre><code class="language-text">first access:
+    normal cache access
+
+second access:
+    same address
+    must hit after first access completes
+</code></pre>
+<p>For valid lines:</p>
+<pre><code class="language-text">line.valid == 1
+line.tag == address tag for resident block
+line.last_used == timestamp of most recent access to that line
+</code></pre>
+<p>For invalid lines:</p>
+<pre><code class="language-text">line.valid == 0
+line.tag and line.last_used do not affect behavior
+</code></pre>
+<h3 id="transpose-contracts">Transpose Contracts</h3>
+<p>For all supported dimensions:</p>
+<pre><code class="language-text">for every row in [0, N):
+    for every col in [0, M):
+        B[col][row] == A[row][col]
+</code></pre>
+<p>For <code>32x32</code>, the helper assumes:</p>
+<pre><code class="language-text">N == 32
+M == 32
+both dimensions are divisible by 8
+</code></pre>
+<p>For <code>64x64</code>, the helper assumes:</p>
+<pre><code class="language-text">N == 64
+M == 64
+both dimensions are divisible by 8
+each 8x8 tile can be split into complete 4x4 quadrants
+</code></pre>
+<p>For the generic helper:</p>
+<pre><code class="language-text">no divisibility assumption
+loop guards clip every tile at N and M
+</code></pre>
+<h2 id="design-tradeoffs">Design Tradeoffs</h2>
+<h3 id="why-store-only-cache-metadata">Why Store Only Cache Metadata?</h3>
+<p>The simulator is scored only on hit, miss, and eviction counts. Those counts require:</p>
+<pre><code class="language-text">valid bit
+tag
+replacement metadata
+</code></pre>
+<p>They do not require block bytes. Avoiding payload storage keeps allocation smaller and avoids irrelevant copy/update logic.</p>
+<h3 id="why-timestamp-based-lru">Why Timestamp-Based LRU?</h3>
+<p>Timestamp LRU keeps the implementation local to one set:</p>
+<pre><code class="language-text">on access:
+    increment global timestamp
+    scan target set
+    update matching line or replace oldest line
+</code></pre>
+<p>This is easier to audit than linked-list LRU and efficient enough because <code>E</code> is small in the lab workload.</p>
+<h3 id="why-specialized-transpose-paths">Why Specialized Transpose Paths?</h3>
+<p>The three graded matrix shapes have different cache behavior:</p>
+<pre><code class="language-text">32x32:
+    simple 8x8 blocking works well
+
+64x64:
+    simple 8x8 blocking causes direct-mapped conflicts
+    staged quadrant movement is worth the extra code
+
+61x67:
+    irregular edges dominate implementation complexity
+    clipped 16x16 blocking is sufficient for full-score performance
+</code></pre>
+<p>The code specializes only where specialization pays off.</p>
+<h3 id="why-no-heap-allocation-in-transc">Why No Heap Allocation In <code>trans.c</code>?</h3>
+<p>Heap allocation would add extra memory references that appear in the Valgrind trace. It would also violate the spirit of the assignment constraints. The optimized code uses scalar temporaries:</p>
+<pre><code class="language-c">int a0, a1, a2, a3, a4, a5, a6, a7;
+</code></pre>
+<p>Those temporaries allow the code to hold a small source row segment while writing to <code>B</code>.</p>
+<h3 id="why-use-b-as-temporary-storage-in-64x64">Why Use <code>B</code> As Temporary Storage In <code>64x64</code>?</h3>
+<p>The <code>64x64</code> case cannot fit an entire <code>8x8</code> tile transformation into scalar temporaries without excessive variables. More importantly, the issue is not just storage capacity; it is direct-mapped conflict timing.</p>
+<p>The staging pattern:</p>
+<pre><code class="language-text">UR -&gt; temporary area in B
+LL -&gt; final area in B
+UR -&gt; moved from temporary area to final area
+</code></pre>
+<p>lets the code control when conflicting lines are loaded and overwritten.</p>
+<h2 id="maintenance-notes">Maintenance Notes</h2>
+<p>If the simulator is changed, preserve these properties:</p>
+<ul>
+<li><code>printSummary</code> must still be called exactly once on successful simulation.</li>
+<li><code>M</code> operations must still call <code>access_cache</code> twice.</li>
+<li><code>I</code> operations must not affect counters.</li>
+<li>malformed command-line input should fail before allocation when possible.</li>
+<li>allocated cache memory should be released on every post-allocation exit path.</li>
+</ul>
+<p>If the transpose code is changed, preserve these properties:</p>
+<ul>
+<li>the submission description must remain exactly <code>"Transpose submission"</code>.</li>
+<li>the <code>transpose_submit</code> prototype must not change.</li>
+<li><code>registerFunctions</code> must register the submission.</li>
+<li>no helper should read or write outside <code>A[N][M]</code> or <code>B[M][N]</code>.</li>
+<li>any added local storage should be considered part of the traced memory behavior.</li>
+</ul>
+<h2 id="useful-commands">Useful Commands</h2>
+<p>Build:</p>
+<pre><code class="language-bash">make
+</code></pre>
+<p>Run the simulator directly:</p>
+<pre><code class="language-bash">./csim -s 4 -E 1 -b 4 -t traces/yi.trace
+./csim -v -s 4 -E 1 -b 4 -t traces/yi.trace
+</code></pre>
+<p>Run the official simulator tests in a Linux-compatible environment:</p>
+<pre><code class="language-bash">./test-csim
+</code></pre>
+<p>Run transpose workloads in a Linux-compatible environment with Valgrind:</p>
+<pre><code class="language-bash">./test-trans -M 32 -N 32
+./test-trans -M 64 -N 64
+./test-trans -M 61 -N 67
+</code></pre>
+<p>Run the original full driver:</p>
+<pre><code class="language-bash">python2 ./driver.py
+</code></pre>
+<p>Clean generated files:</p>
+<pre><code class="language-bash">make clean
+</code></pre>
+<h2 id="review-checklist">Review Checklist</h2>
+<p>For <a href="https://github.com/andrewikovic/cache/blob/main/csim.c">csim.c</a>:</p>
+<ul>
+<li>Does every data access increment <code>timestamp</code> exactly once?</li>
+<li>Does every hit update <code>last_used</code>?</li>
+<li>Does a miss prefer an invalid line before evicting?</li>
+<li>Does eviction choose the minimum <code>last_used</code> among valid lines?</li>
+<li>Are <code>I</code> operations ignored?</li>
+<li>Are <code>M</code> operations counted as two accesses?</li>
+<li>Are <code>s</code>, <code>E</code>, and <code>b</code> validated before shifts and allocation?</li>
+<li>Is memory freed on all post-allocation exits?</li>
+</ul>
+<p>For <a href="https://github.com/andrewikovic/cache/blob/main/trans.c">trans.c</a>:</p>
+<ul>
+<li>Does <code>transpose_submit</code> route each graded dimension to the intended helper?</li>
+<li>Does each helper preserve <code>B[col][row] == A[row][col]</code>?</li>
+<li>Does <code>32x32</code> process exactly complete <code>8x8</code> tiles?</li>
+<li>Does <code>64x64</code> preserve the staged <code>UR</code> values before overwriting the staging area?</li>
+<li>Does the generic helper clip both row and column bounds?</li>
+<li>Does the submission description string remain unchanged?</li>
+</ul>
+<p>For the harness:</p>
+<ul>
+<li>Does <code>test-trans</code> still use <code>eval_perf(5, 1, 5)</code>?</li>
+<li>Does <code>tracegen</code> still emit marker accesses around each tested function?</li>
+<li>Does <code>driver.py</code> still use the same miss thresholds?</li>
+</ul>
+<h2 id="summary">Summary</h2>
+<p>The codebase implements a complete Cache Lab solution with two focused designs:</p>
+<ul>
+<li><a href="https://github.com/andrewikovic/cache/blob/main/csim.c">csim.c</a> is a metadata-only set-associative cache simulator with validated CLI parsing, explicit allocation, timestamp-based LRU, reference-style trace processing, and correct summary reporting.</li>
+<li><a href="https://github.com/andrewikovic/cache/blob/main/trans.c">trans.c</a> is a cache-aware transpose implementation that uses <code>8x8</code> blocking for <code>32x32</code>, staged quadrant movement for the conflict-heavy <code>64x64</code> case, and clipped <code>16x16</code> blocking for irregular sizes such as <code>61x67</code>.</li>
+</ul>
+<p>The measured results show that the implementation is not merely correct:</p>
+<pre><code class="language-text">cache simulator: 27/27
+32x32 transpose: 287 misses
+64x64 transpose: 1227 misses
+61x67 transpose: 1992 misses
+</code></pre>
+<p>Those results line up with the design choices: the simulator models exactly the metadata needed for reference behavior, and the transpose code adjusts its memory-access schedule to the cache geometry that the driver actually measures.</p>
+    </article>
+  </main>
+
+  <footer>
+    <span>&copy; 2026 Andrew Ikovic</span>
+    <div class="footer-links">
+      <a href="https://github.com/andrewikovic" target="_blank" rel="noreferrer">GitHub</a>
+      <a href="https://www.linkedin.com/in/andrewikovic" target="_blank" rel="noreferrer">LinkedIn</a>
+    </div>
+  </footer>
+</body>
+</html>
