@@ -1,0 +1,742 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Robot Swimming Trials: Technical Note - Andrew Ikovic</title>
+  <meta name="description" content="Technical note deriving the Robot Swimming Trials exploit as an occupancy problem and computing the first profitable race count exactly.">
+  <link rel="stylesheet" href="../styles.css">
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [["\\(", "\\)"]],
+        displayMath: [["\\[", "\\]"]]
+      },
+      svg: {
+        fontCache: "global"
+      }
+    };
+  </script>
+  <script async id="MathJax-script" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        background: "#fbfaf7",
+        primaryColor: "#fbfaf7",
+        primaryTextColor: "#101010",
+        primaryBorderColor: "#d8d4ca",
+        lineColor: "#62615c",
+        secondaryColor: "#eef5f2",
+        tertiaryColor: "#f4f2ed",
+        fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
+      }
+    });
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="../index.html">Andrew Ikovic</a>
+      <nav aria-label="Primary navigation">
+        <a href="https://github.com/andrewikovic" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://www.linkedin.com/in/andrewikovic" target="_blank" rel="noreferrer">LinkedIn</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="post-layout">
+    <aside class="post-toc" aria-label="Table of contents">
+      <strong>Contents</strong>
+      <ol>
+        <li>
+          <a href="#executive-summary">Executive summary</a>
+        </li>
+        <li>
+          <a href="#problem-restatement">Problem restatement</a>
+        </li>
+        <li>
+          <a href="#important-legality-note">Important legality note</a>
+        </li>
+        <li>
+          <a href="#strategy-behavior">Strategy behavior</a>
+        </li>
+        <li>
+          <a href="#case-1-every-race-has-at-least-one-opponent">Case 1: Every race has at least one opponent</a>
+        </li>
+        <li>
+          <a href="#case-2-at-least-one-race-has-no-opponents">Case 2: At least one race has no opponents</a>
+        </li>
+        <li>
+          <a href="#event-diagram">Event diagram</a>
+        </li>
+        <li>
+          <a href="#why-this-is-the-right-exploit">Why this is the right exploit</a>
+        </li>
+        <li>
+          <a href="#occupancy-model">Occupancy model</a>
+        </li>
+        <li>
+          <a href="#inclusion-exclusion-derivation">Inclusion-exclusion derivation</a>
+        </li>
+        <li>
+          <a href="#inclusion-exclusion-diagram">Inclusion-exclusion diagram</a>
+        </li>
+        <li>
+          <a href="#exact-python-implementation">Exact Python implementation</a>
+        </li>
+        <li>
+          <a href="#complete-standalone-solver">Complete standalone solver</a>
+        </li>
+        <li>
+          <a href="#exact-threshold-values">Exact threshold values</a>
+        </li>
+        <li>
+          <a href="#numerical-table">Numerical table</a>
+        </li>
+        <li>
+          <a href="#alternative-dynamic-programming-check">Alternative dynamic-programming check</a>
+        </li>
+        <li>
+          <a href="#stirling-number-formulation">Stirling-number formulation</a>
+        </li>
+        <li>
+          <a href="#monte-carlo-sanity-check">Monte Carlo sanity check</a>
+        </li>
+        <li>
+          <a href="#common-pitfalls">Common pitfalls</a>
+        </li>
+        <li>
+          <a href="#pitfall-1-treating-empty-race-events-as-independent">Pitfall 1: Treating empty-race events as independent</a>
+        </li>
+        <li>
+          <a href="#pitfall-2-forgetting-the-1-opponent">Pitfall 2: Forgetting the <code>-1</code> opponent</a>
+        </li>
+        <li>
+          <a href="#pitfall-3-relying-on-floating-point-comparisons-near-the-threshold">Pitfall 3: Relying on floating-point comparisons near the threshold</a>
+        </li>
+        <li>
+          <a href="#pitfall-4-thinking-tie-breaking-matters">Pitfall 4: Thinking tie-breaking matters</a>
+        </li>
+        <li>
+          <a href="#complexity">Complexity</a>
+        </li>
+        <li>
+          <a href="#minimal-tests">Minimal tests</a>
+        </li>
+        <li>
+          <a href="#summary">Summary</a>
+        </li>
+      </ol>
+    </aside>
+
+    <article class="post">
+      <a class="back-link" href="../index.html">Back to posts</a>
+      <div class="post-header-meta">
+        <time datetime="2026-07-03">July 3, 2026</time>
+      </div>
+
+<h1 id="robot-swimming-trials-technical-note">Robot Swimming Trials: Technical Note</h1>
+      <p class="source-link">
+        Source repository:
+        <a href="https://github.com/andrewikovic/robot-swimming-trials" target="_blank" rel="noreferrer">github.com/andrewikovic/robot-swimming-trials</a>
+      </p>
+<h2 id="executive-summary">Executive summary</h2>
+<p>This repository contains a notebook solution to Jane Street&#x27;s first Robot Swimming Trials puzzle:</p>
+<ul>
+<li>Puzzle page: <a href="https://www.janestreet.com/puzzles/robot-swimming-trials-index/" target="_blank" rel="noreferrer">https://www.janestreet.com/puzzles/robot-swimming-trials-index/</a>
+</li>
+<li>Published solution: <a href="https://www.janestreet.com/puzzles/robot-swimming-trials-solution/" target="_blank" rel="noreferrer">https://www.janestreet.com/puzzles/robot-swimming-trials-solution/</a>
+</li>
+<li>Local notebook: <a href="https://github.com/andrewikovic/robot-swimming-trials/blob/main/2021_10_RobotSwimmingTrials.ipynb" target="_blank" rel="noreferrer"><code>../2021_10_RobotSwimmingTrials.ipynb</code></a>
+</li>
+</ul>
+<p>The answer is:</p>
+<pre><code class="language-text">First exploitable number of races: N = 8
+Qualification probability at N = 8: 0.334578325799579...
+Benchmark probability: 1/3 = 0.333333333333333...
+Advantage: 0.001244992466246...</code></pre>
+<p>To six significant digits, the exploit probability is:</p>
+<pre><code class="language-text">p = 0.334578</code></pre>
+<p>The key strategy is simple. If the other <code>3N - 1</code> robots all use the old discrete strategy, meaning each opponent chooses one race uniformly at random and bids all fuel on that race, then our robot should spread fuel positively across every race. Under the original puzzle&#x27;s exact-budget model, a clean legal choice is:</p>
+<pre><code class="language-text">bid 1/N in every race</code></pre>
+<p>For <code>N &gt; 1</code>, every one of our bids is strictly between <code>0</code> and <code>1</code>. That means we lose any race that at least one opponent chose, because an opponent has bid <code>1</code> there. But in any race that no opponent chose, all opponents have bid <code>0</code>, while our robot has bid <code>1/N &gt; 0</code>, so our robot wins that race outright.</p>
+<p>Therefore the exploit succeeds exactly when the opponents leave at least one race empty. This turns the puzzle into a standard occupancy problem:</p>
+<pre><code class="language-text">Throw m = 3N - 1 balls into N bins.
+What is the first N for which at least one bin is empty with probability &gt; 1/3?</code></pre>
+<p>The first such <code>N</code> is <code>8</code>.</p>
+<h2 id="problem-restatement">Problem restatement</h2>
+<p>There are:</p>
+<ul>
+<li><code>3N</code> robots.
+</li>
+<li><code>N</code> swimming races.
+</li>
+<li><code>N</code> final spots, one per race.
+</li>
+<li>One distinguished robot, &quot;our robot&quot;.
+</li>
+<li><code>3N - 1</code> opponents.
+</li>
+</ul>
+<p>The historical strategy is discrete:</p>
+<pre><code class="language-text">Choose one race uniformly at random.
+Bid the entire fuel budget, 1, on that race.
+Bid 0 on every other race.</code></pre>
+<p>The puzzle asks for the first value of <code>N</code> where our robot can do better than the symmetric benchmark by using a different strategy while all opponents continue using the discrete strategy.</p>
+<p>The symmetric benchmark is:</p>
+<div class="math-display">\[
+\frac{N\ \text{final spots}}{3N\ \text{robots}} = \frac{1}{3}
+\]</div>
+<p>This benchmark follows from exchangeability. If all robots use the same strategy, then each robot has the same probability of qualifying, and exactly <code>N</code> robots qualify. Hence the sum of all qualification probabilities is <code>N</code>, so each of the <code>3N</code> identical robots qualifies with probability <code>N / (3N) = 1/3</code>.</p>
+<p>The goal is therefore to find the smallest <code>N</code> such that a unilateral deviation gives:</p>
+<div class="math-display">\[
+P(\text{our robot qualifies}) > \frac{1}{3}
+\]</div>
+<h2 id="important-legality-note">Important legality note</h2>
+<p>The notebook describes the exploit as bidding a tiny positive <code>epsilon</code> in every race with:</p>
+<div class="math-display">\[
+0 < N\epsilon < 1
+\]</div>
+<p>That captures the essential idea: positive bids beat zero bids in empty races. However, the original puzzle states that a robot&#x27;s submitted fuel allocation sums to exactly <code>1</code>. Under that exact-budget model, the clean legal version is:</p>
+<div class="math-display">\[
+x_i = \frac{1}{N}\quad\text{for every race }i
+\]</div>
+<p>For every <code>N &gt;= 2</code>, this allocation satisfies:</p>
+<div class="math-display">\[
+\sum_i x_i = 1,\qquad 0 < x_i < 1\quad\text{for every }i
+\]</div>
+<p>The same event controls success: our robot qualifies if and only if at least one race receives no all-in opponent.</p>
+<p>More generally, any allocation with:</p>
+<div class="math-display">\[
+\sum_i x_i = 1,\qquad 0 < x_i < 1\quad\text{for every }i
+\]</div>
+<p>has the same success event against all-in opponents. The exact magnitudes do not matter, only the facts that every bid is positive and no bid is large enough to beat an opponent&#x27;s all-in bid of <code>1</code>.</p>
+<h2 id="strategy-behavior">Strategy behavior</h2>
+<p>Let <code>C_i</code> be the number of opponents who chose race <code>i</code>. Under the discrete strategy:</p>
+<div class="math-display">\[
+(C_1, C_2, \ldots, C_N)\sim\operatorname{Multinomial}
+\left(3N - 1;\frac{1}{N},\ldots,\frac{1}{N}\right)
+\]</div>
+<p>Our all-positive spread strategy bids:</p>
+<div class="math-display">\[
+x_i = \frac{1}{N}
+\]</div>
+<p>There are two cases.</p>
+<h3 id="case-1-every-race-has-at-least-one-opponent">Case 1: Every race has at least one opponent</h3>
+<p>If <code>C_i &gt;= 1</code> for every race <code>i</code>, then every race has an opponent bid of <code>1</code>. Since our bid is only <code>1/N &lt; 1</code>, our robot cannot win any race.</p>
+<pre><code class="language-text">No empty race -&gt; no qualification under the spread strategy</code></pre>
+<h3 id="case-2-at-least-one-race-has-no-opponents">Case 2: At least one race has no opponents</h3>
+<p>If <code>C_i = 0</code> for at least one race <code>i</code>, then every opponent bid in race <code>i</code> is <code>0</code>. Our robot bid is <code>1/N &gt; 0</code>, so our robot wins that race outright.</p>
+<pre><code class="language-text">At least one empty race -&gt; qualification under the spread strategy</code></pre>
+<p>Tie-breaking is irrelevant for this exploit. In an empty race our robot does not tie opponents; it strictly beats their zero bids.</p>
+<p>The qualification event is therefore:</p>
+<div class="math-display">\[
+E = \{\text{there exists at least one empty race among the opponents' choices}\}
+\]</div>
+<p>and the exploit probability is:</p>
+<div class="math-display">\[
+q_N = P(E)
+\]</div>
+<h2 id="event-diagram">Event diagram</h2>
+<div class="diagram mermaid">
+flowchart TD
+    A["Opponents choose races independently and uniformly"] --&gt; B["Count opponent choices per race"]
+    B --&gt; C{"Is any race empty?"}
+    C -- "yes" --&gt; D["Our 1/N bid beats opponent zero bids"]
+    D --&gt; E["Our robot qualifies"]
+    C -- "no" --&gt; F["Every race has an opponent bid of 1"]
+    F --&gt; G["Our subunit bids lose everywhere"]
+    G --&gt; H["Our robot does not qualify"]
+</div>
+<p>An ASCII occupancy picture for <code>N = 8</code>:</p>
+<pre><code class="language-text">Race:              1   2   3   4   5   6   7   8
+Opponent count:    4   1   0   2   3   5   6   2
+Our bid:          1/8 1/8 1/8 1/8 1/8 1/8 1/8 1/8
+
+Race 3 is empty of all-in opponents.
+All opponent bids in race 3 are 0.
+Our bid in race 3 is 1/8.
+Therefore our robot qualifies.</code></pre>
+<h2 id="why-this-is-the-right-exploit">Why this is the right exploit</h2>
+<p>Against the opponents&#x27; all-in strategy, each opponent bid in any race is either <code>1</code> or <code>0</code>.</p>
+<p>For a non-discrete allocation where all of our bids are less than <code>1</code>:</p>
+<ul>
+<li>We can never beat an occupied race, because an occupied race has a bid of <code>1</code>.
+</li>
+<li>We can always beat an empty race if our bid in that race is positive.
+</li>
+<li>The exact positive value is irrelevant as long as it is below <code>1</code>.
+</li>
+</ul>
+<p>So, within the class of non-discrete strategies, it is best to bid positively on as many races as possible. Since a legal exact-budget allocation can make every race positive while keeping every bid below <code>1</code>, the natural best spread strategy puts positive fuel on all <code>N</code> races.</p>
+<p>This strategy guarantees qualification on the largest possible favorable event:</p>
+<pre><code class="language-text">at least one of the N races is empty</code></pre>
+<p>For comparison, if our robot itself uses the old discrete strategy, then by symmetry its qualification probability is exactly <code>1/3</code>. Therefore a profitable deviation exists exactly when:</p>
+<div class="math-display">\[
+q_N = P(\text{at least one empty race}) > \frac{1}{3}
+\]</div>
+<h2 id="occupancy-model">Occupancy model</h2>
+<p>The opponents&#x27; random choices can be modeled as throwing:</p>
+<div class="math-display">\[
+m = 3N - 1
+\]</div>
+<p>independent labeled balls into:</p>
+<div class="math-display">\[
+N
+\]</div>
+<p>labeled bins, where:</p>
+<ul>
+<li>each ball is one opponent;
+</li>
+<li>each bin is one race;
+</li>
+<li>a race is empty if no ball lands in its bin.
+</li>
+</ul>
+<p>There are:</p>
+<div class="math-display">\[
+N^m
+\]</div>
+<p>total assignments of opponents to races.</p>
+<p>The desired probability is:</p>
+<div class="math-display">\[
+q_N = P(\text{at least one empty bin})
+\]</div>
+<p>It is often easier to compute the complement:</p>
+<div class="math-display">\[
+P(\text{all bins are nonempty})
+\]</div>
+<p>Then:</p>
+<div class="math-display">\[
+q_N = 1 - P(\text{all bins are nonempty})
+\]</div>
+<h2 id="inclusion-exclusion-derivation">Inclusion-exclusion derivation</h2>
+<p>Define:</p>
+<div class="math-display">\[
+A_i = \{\text{race }i\text{ is empty}\}
+\]</div>
+<p>We want:</p>
+<div class="math-display">\[
+P(A_1 \cup A_2 \cup \cdots \cup A_N)
+\]</div>
+<p>For any fixed set <code>S</code> of <code>j</code> races, the event that every race in <code>S</code> is empty means all <code>m</code> opponents must choose among only the remaining <code>N - j</code> races. The probability of that event is:</p>
+<div class="math-display">\[
+\left(\frac{N-j}{N}\right)^m
+\]</div>
+<p>There are:</p>
+<div class="math-display">\[
+\binom{N}{j}
+\]</div>
+<p>sets <code>S</code> of size <code>j</code>.</p>
+<p>By inclusion-exclusion:</p>
+<div class="math-display">\[
+P(\text{at least one empty race})
+  = \sum_{j=1}^{N} (-1)^{j+1}\binom{N}{j}
+    \left(\frac{N-j}{N}\right)^m
+\]</div>
+<p>Equivalently, the all-nonempty probability is:</p>
+<div class="math-display">\[
+P(\text{all races nonempty})
+  = \frac{1}{N^m}\sum_{j=0}^{N} (-1)^j\binom{N}{j}(N-j)^m
+\]</div>
+<p>and:</p>
+<div class="math-display">\[
+q_N
+  = 1 - \frac{1}{N^m}\sum_{j=0}^{N} (-1)^j\binom{N}{j}(N-j)^m
+\]</div>
+<p>where:</p>
+<div class="math-display">\[
+m = 3N - 1
+\]</div>
+<h2 id="inclusion-exclusion-diagram">Inclusion-exclusion diagram</h2>
+<div class="diagram mermaid">
+flowchart TD
+    T["All N^m assignments"] --&gt; S1["Subtract assignments missing at least one named race"]
+    S1 --&gt; A2["Add back assignments missing two named races"]
+    A2 --&gt; S3["Subtract assignments missing three named races"]
+    S3 --&gt; D["Continue alternating"]
+    D --&gt; R["Assignments where no race is empty"]
+    R --&gt; Q["1 - complement = probability at least one empty race"]
+</div>
+<p>The alternating signs are necessary because an assignment with multiple empty races is counted multiple times if we only subtract one-empty-race events.</p>
+<h2 id="exact-python-implementation">Exact Python implementation</h2>
+<p>The notebook uses exact rational arithmetic through <code>fractions.Fraction</code>. That is the right choice because the threshold is close: for <code>N = 8</code>, the advantage over <code>1/3</code> is only about <code>0.001245</code>.</p>
+<pre><code class="language-python">from fractions import Fraction
+from math import comb
+
+
+def probability_at_least_one_empty(n_races: int) -&gt; Fraction:
+    &quot;&quot;&quot;Exact probability that 3N - 1 all-in opponents leave a race empty.&quot;&quot;&quot;
+    balls = 3 * n_races - 1
+    denominator = n_races ** balls
+
+    all_nonempty = sum(
+        Fraction(
+            (-1) ** j * comb(n_races, j) * (n_races - j) ** balls,
+            denominator,
+        )
+        for j in range(n_races + 1)
+    )
+
+    return 1 - all_nonempty</code></pre>
+<p>A compact threshold search:</p>
+<pre><code class="language-python">from fractions import Fraction
+
+
+def first_n_beating_one_third(limit: int = 100) -&gt; tuple[int, Fraction]:
+    benchmark = Fraction(1, 3)
+
+    for n_races in range(1, limit + 1):
+        p_empty = probability_at_least_one_empty(n_races)
+        if p_empty &gt; benchmark:
+            return n_races, p_empty
+
+    raise ValueError(f&quot;No exploitable N found up to {limit}&quot;)
+
+
+n_star, p_star = first_n_beating_one_third()
+print(n_star)
+print(float(p_star))</code></pre>
+<p>Expected output:</p>
+<pre><code class="language-text">8
+0.334578325799579</code></pre>
+<h2 id="complete-standalone-solver">Complete standalone solver</h2>
+<p>This script is equivalent to the core notebook calculation, but can be run outside Jupyter.</p>
+<pre><code class="language-python">#!/usr/bin/env python3
+
+from fractions import Fraction
+from math import comb
+
+
+def probability_at_least_one_empty(n_races: int) -&gt; Fraction:
+    if n_races &lt; 1:
+        raise ValueError(&quot;n_races must be positive&quot;)
+
+    balls = 3 * n_races - 1
+    denominator = n_races ** balls
+
+    all_nonempty = sum(
+        Fraction(
+            (-1) ** j * comb(n_races, j) * (n_races - j) ** balls,
+            denominator,
+        )
+        for j in range(n_races + 1)
+    )
+
+    return 1 - all_nonempty
+
+
+def first_exploitable_n(limit: int = 100) -&gt; tuple[int, Fraction]:
+    benchmark = Fraction(1, 3)
+
+    for n_races in range(1, limit + 1):
+        p = probability_at_least_one_empty(n_races)
+        if p &gt; benchmark:
+            return n_races, p
+
+    raise RuntimeError(f&quot;No answer found through N={limit}&quot;)
+
+
+def main() -&gt; None:
+    benchmark = Fraction(1, 3)
+
+    print(&quot;N   P(empty)           P(empty) - 1/3&quot;)
+    print(&quot;--  -----------------  ----------------&quot;)
+
+    for n_races in range(1, 11):
+        p = probability_at_least_one_empty(n_races)
+        print(
+            f&quot;{n_races:2d}  &quot;
+            f&quot;{float(p):.15f}  &quot;
+            f&quot;{float(p - benchmark): .15f}&quot;
+        )
+
+    n_star, p_star = first_exploitable_n()
+    print()
+    print(f&quot;First exploitable N: {n_star}&quot;)
+    print(f&quot;Probability: {float(p_star):.15f}&quot;)
+    print(f&quot;Exact probability: {p_star}&quot;)
+    print(f&quot;Excess over 1/3: {float(p_star - benchmark):.15f}&quot;)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()</code></pre>
+<h2 id="exact-threshold-values">Exact threshold values</h2>
+<p>The threshold occurs between <code>N = 7</code> and <code>N = 8</code>.</p>
+<div class="math-display">\[
+\begin{aligned}
+q_7 &= \frac{482219467500529}{1628413597910449}
+     = 0.296128371882490\ldots \\
+\frac{1}{3} - q_7
+    &= \frac{181755195408862}{4885240793731347}
+     = 0.037204961450843\ldots \\
+q_8 &= \frac{96435636697422619}{288230376151711744}
+     = 0.334578325799579\ldots \\
+q_8 - \frac{1}{3}
+    &= \frac{1076533940556113}{864691128455135232}
+     = 0.001244992466246\ldots
+\end{aligned}
+\]</div>
+<p>So:</p>
+<div class="math-display">\[
+q_7 < \frac{1}{3} < q_8
+\]</div>
+<p>and the first exploitable number of races is:</p>
+<div class="math-display">\[
+N = 8
+\]</div>
+<h2 id="numerical-table">Numerical table</h2>
+<p>The following table shows the exact occupancy probability converted to decimal form.</p>
+<pre><code class="language-text">N   opponents m=3N-1   q_N = P(at least one empty)   q_N - 1/3
+--  ----------------   ---------------------------   -----------
+ 1          2           0.000000000000000            -0.333333333333333
+ 2          5           0.062500000000000            -0.270833333333333
+ 3          8           0.116598079561043            -0.216735253772291
+ 4         11           0.166011810302734            -0.167321523030599
+ 5         14           0.212092751872000            -0.121240581461333
+ 6         17           0.255367547996616            -0.077965785336717
+ 7         20           0.296128371882490            -0.037204961450843
+ 8         23           0.334578325799579             0.001244992466246
+ 9         26           0.370878363846351             0.037545030513017
+10         29           0.405165722331272             0.071832388997938
+11         32           0.437562285923272             0.104228952589939
+12         35           0.468178850945680             0.134845517612346</code></pre>
+<p>This table is not a floating-point proof by itself. The proof comes from the exact rational comparisons:</p>
+<pre><code class="language-python">from fractions import Fraction
+
+benchmark = Fraction(1, 3)
+
+p7 = probability_at_least_one_empty(7)
+p8 = probability_at_least_one_empty(8)
+
+assert p7 &lt; benchmark
+assert benchmark &lt; p8
+assert first_n_beating_one_third()[0] == 8</code></pre>
+<h2 id="alternative-dynamic-programming-check">Alternative dynamic-programming check</h2>
+<p>Inclusion-exclusion is the shortest exact method, but an independent dynamic-programming count is a useful verification.</p>
+<p>Let:</p>
+<div class="math-display">\[
+\operatorname{onto}(b,k)
+\]</div>
+<p>be the number of ways to place <code>b</code> labeled balls into <code>k</code> labeled bins with every bin nonempty.</p>
+<p>The recurrence is:</p>
+<div class="math-display">\[
+\begin{aligned}
+\operatorname{onto}(0,0) &= 1 \\
+\operatorname{onto}(b,0) &= 0 \quad\text{for } b > 0 \\
+\operatorname{onto}(0,k) &= 0 \quad\text{for } k > 0 \\
+\operatorname{onto}(b,k)
+  &= k\,\operatorname{onto}(b-1,k)
+   + k\,\operatorname{onto}(b-1,k-1)
+\end{aligned}
+\]</div>
+<p>Reason:</p>
+<ul>
+<li>If the last ball goes into a bin that was already nonempty, then the first <code>b - 1</code> balls already occupied all <code>k</code> bins, and the last ball has <code>k</code> choices.
+</li>
+<li>If the last ball is the first ball in its bin, choose that bin in <code>k</code> ways, and the first <code>b - 1</code> balls must occupy the other <code>k - 1</code> bins.
+</li>
+</ul>
+<p>Code:</p>
+<pre><code class="language-python">from functools import cache
+from fractions import Fraction
+
+
+@cache
+def onto_count(balls: int, bins: int) -&gt; int:
+    if balls == 0 and bins == 0:
+        return 1
+    if balls == 0 or bins == 0:
+        return 0
+    if balls &lt; bins:
+        return 0
+
+    return bins * onto_count(balls - 1, bins) + bins * onto_count(balls - 1, bins - 1)
+
+
+def probability_at_least_one_empty_dp(n_races: int) -&gt; Fraction:
+    balls = 3 * n_races - 1
+    all_assignments = n_races ** balls
+    all_nonempty_assignments = onto_count(balls, n_races)
+    return 1 - Fraction(all_nonempty_assignments, all_assignments)</code></pre>
+<p>Verification against inclusion-exclusion:</p>
+<pre><code class="language-python">for n_races in range(1, 20):
+    assert probability_at_least_one_empty(n_races) == probability_at_least_one_empty_dp(n_races)</code></pre>
+<h2 id="stirling-number-formulation">Stirling-number formulation</h2>
+<p>The same count can also be expressed with Stirling numbers of the second kind. The number of ways to place <code>m</code> labeled opponents into <code>N</code> labeled races with every race nonempty is:</p>
+<div class="math-display">\[
+N!\,S(m,N)
+\]</div>
+<p>where <code>S(m, N)</code> is the number of ways to partition <code>m</code> labeled objects into <code>N</code> nonempty unlabeled groups.</p>
+<p>Thus:</p>
+<div class="math-display">\[
+P(\text{all races nonempty})
+  = \frac{N!\,S(3N-1,N)}{N^{3N-1}}
+\]</div>
+<p>and:</p>
+<div class="math-display">\[
+q_N = 1 - \frac{N!\,S(3N-1,N)}{N^{3N-1}}
+\]</div>
+<p>This is mathematically equivalent to the inclusion-exclusion formula because:</p>
+<div class="math-display">\[
+N!\,S(m,N)
+  = \sum_{j=0}^{N} (-1)^j\binom{N}{j}(N-j)^m
+\]</div>
+<h2 id="monte-carlo-sanity-check">Monte Carlo sanity check</h2>
+<p>Simulation is not needed for the proof, but it is a useful check that the occupancy interpretation matches the intended event.</p>
+<pre><code class="language-python">from random import Random
+
+
+def simulate_empty_race_probability(
+    n_races: int,
+    trials: int = 100_000,
+    seed: int = 202110,
+) -&gt; float:
+    rng = Random(seed)
+    balls = 3 * n_races - 1
+    empty_count = 0
+
+    for _ in range(trials):
+        occupied = {rng.randrange(n_races) for _ in range(balls)}
+        if len(occupied) &lt; n_races:
+            empty_count += 1
+
+    return empty_count / trials
+
+
+for n_races in (7, 8):
+    simulated = simulate_empty_race_probability(n_races)
+    exact = float(probability_at_least_one_empty(n_races))
+    print(f&quot;N={n_races}: simulation={simulated:.6f}, exact={exact:.6f}&quot;)</code></pre>
+<p>Typical output is close to:</p>
+<pre><code class="language-text">N=7: simulation=0.296..., exact=0.296128
+N=8: simulation=0.335..., exact=0.334578</code></pre>
+<p>Small discrepancies are expected because the simulation is random and uses a finite number of trials.</p>
+<h2 id="common-pitfalls">Common pitfalls</h2>
+<h3 id="pitfall-1-treating-empty-race-events-as-independent">Pitfall 1: Treating empty-race events as independent</h3>
+<p>For a fixed race, the probability it is empty is:</p>
+<div class="math-display">\[
+\left(\frac{N-1}{N}\right)^{3N-1}
+\]</div>
+<p>For <code>N = 8</code>, this is:</p>
+<div class="math-display">\[
+\left(\frac{7}{8}\right)^{23} = 0.046364461444254\ldots
+\]</div>
+<p>But the events:</p>
+<pre><code class="language-text">race 1 is empty
+race 2 is empty
+...
+race N is empty</code></pre>
+<p>are not independent. If one race is empty, the opponents have been concentrated into fewer races, changing the probability that another race is empty.</p>
+<p>Two tempting but incorrect approximations at <code>N = 8</code> are:</p>
+<div class="math-display">\[
+\begin{aligned}
+N\,P(\text{a fixed race is empty})
+  &= 8\left(\frac{7}{8}\right)^{23}
+   = 0.370915691554032\ldots \\
+1 - \left(1 - P(\text{a fixed race is empty})\right)^N
+  &= 1 - \left(1 - \left(\frac{7}{8}\right)^{23}\right)^8
+   = 0.315994776489600\ldots
+\end{aligned}
+\]</div>
+<p>The exact value is between them:</p>
+<div class="math-display">\[
+q_8 = 0.334578325799579\ldots
+\]</div>
+<p>Inclusion-exclusion is the tool that correctly accounts for dependence.</p>
+<h3 id="pitfall-2-forgetting-the-1-opponent">Pitfall 2: Forgetting the <code>-1</code> opponent</h3>
+<p>There are <code>3N</code> total robots, but one of them is our deviating robot. Only the other robots are randomly choosing all-in races. Therefore the number of balls in the occupancy model is:</p>
+<div class="math-display">\[
+m = 3N - 1
+\]</div>
+<p>not <code>3N</code>.</p>
+<p>Using <code>3N</code> changes the threshold calculation.</p>
+<h3 id="pitfall-3-relying-on-floating-point-comparisons-near-the-threshold">Pitfall 3: Relying on floating-point comparisons near the threshold</h3>
+<p>The threshold is close:</p>
+<div class="math-display">\[
+q_8 - \frac{1}{3} = 0.001244992466246\ldots
+\]</div>
+<p>Standard floating-point arithmetic is fine for display, but exact rational arithmetic is cleaner for proving:</p>
+<div class="math-display">\[
+q_7 < \frac{1}{3} < q_8
+\]</div>
+<p>The notebook&#x27;s use of <code>Fraction</code> avoids rounding ambiguity.</p>
+<h3 id="pitfall-4-thinking-tie-breaking-matters">Pitfall 4: Thinking tie-breaking matters</h3>
+<p>Tie-breaking among opponents in occupied races can affect which opponent wins a particular occupied race, but it does not affect our exploit.</p>
+<p>Our robot:</p>
+<ul>
+<li>loses occupied races because opponent bids there are <code>1</code>;
+</li>
+<li>wins any empty race because our positive bid beats opponent bids of <code>0</code>.
+</li>
+</ul>
+<p>There is no tie involving our robot in the favorable event.</p>
+<h2 id="complexity">Complexity</h2>
+<p>The inclusion-exclusion implementation has:</p>
+<pre><code class="language-text">time complexity:  O(N) arithmetic terms
+space complexity: O(1) outside the size of big integers/rationals</code></pre>
+<p>The integers can become large because the calculation includes powers of the form:</p>
+<div class="math-display">\[
+(N-j)^{3N-1}
+\]</div>
+<p>For the threshold search here, this is tiny. Even exact rational arithmetic through <code>N = 100</code> is straightforward in Python.</p>
+<p>The dynamic-programming verification has roughly:</p>
+<pre><code class="language-text">time complexity:  O(N * m) = O(N^2) because m = 3N - 1
+space complexity: O(N * m)</code></pre>
+<p>It is slower and more memory-intensive than inclusion-exclusion for this problem, but it is conceptually useful as an independent check.</p>
+<h2 id="minimal-tests">Minimal tests</h2>
+<p>A focused test suite should assert the exact threshold rather than merely printing decimals.</p>
+<pre><code class="language-python">from fractions import Fraction
+
+
+def test_threshold_is_eight() -&gt; None:
+    benchmark = Fraction(1, 3)
+
+    assert probability_at_least_one_empty(7) &lt; benchmark
+    assert probability_at_least_one_empty(8) &gt; benchmark
+    assert first_n_beating_one_third()[0] == 8
+
+
+def test_dp_matches_inclusion_exclusion() -&gt; None:
+    for n_races in range(1, 15):
+        assert (
+            probability_at_least_one_empty(n_races)
+            == probability_at_least_one_empty_dp(n_races)
+        )</code></pre>
+<p>If testing only the notebook logic, the most important assertions are:</p>
+<pre><code class="language-python">assert first_n_beating_one_third()[0] == 8
+assert probability_at_least_one_empty(7) &lt; Fraction(1, 3)
+assert probability_at_least_one_empty(8) &gt; Fraction(1, 3)</code></pre>
+<h2 id="summary">Summary</h2>
+<p>The problem becomes simple once the opponent strategy is viewed as an occupancy process.</p>
+<ol>
+<li>Opponents choose races uniformly and independently.
+</li>
+<li>Our robot bids positively on every race, for example <code>1/N</code> in each.
+</li>
+<li>Our robot qualifies exactly when the opponents leave at least one race empty.
+</li>
+<li>The empty-race probability is computed exactly by inclusion-exclusion.
+</li>
+<li>The first <code>N</code> where this probability exceeds the symmetric benchmark <code>1/3</code> is <code>N = 8</code>.
+</li>
+</ol>
+<p>Final answer:</p>
+<pre><code class="language-text">N = 8
+p = 0.334578325799579...</code></pre>
+    </article>
+  </main>
+
+  <footer>
+    <span>&copy; 2026 Andrew Ikovic</span>
+    <div class="footer-links">
+      <a href="https://github.com/andrewikovic" target="_blank" rel="noreferrer">GitHub</a>
+      <a href="https://www.linkedin.com/in/andrewikovic" target="_blank" rel="noreferrer">LinkedIn</a>
+    </div>
+  </footer>
+</body>
+</html>

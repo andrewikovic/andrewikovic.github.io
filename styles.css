@@ -369,6 +369,20 @@ blockquote {
   color: var(--muted);
 }
 
+.math-display {
+  overflow-x: auto;
+  margin: 1.15rem 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--soft-line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.math-display mjx-container {
+  margin: 0 !important;
+  min-width: max-content;
+}
+
 .diagram {
   overflow-x: auto;
   margin: 1.5rem 0;
